@@ -1,4 +1,4 @@
-# Copyright 2021 PeppyMeter for Volumio by 2aCD
+# Copyright 2021-2024 PeppyMeter for Volumio by 2aCD
 # Copyright 2025 Volumio 4 adaptation by Just a Nerd
 # Rewritten 2025 for Volumio 4 / Bookworm (Python 3.11, python-socketio 5.x)
 #
@@ -75,6 +75,8 @@ class AlbumartAnimator(Thread):
                             self.position_mem = title + artist
                             # Queue title for main thread rendering
                             self.pending_title = args[0].copy()
+                            # Reset seek_mem to force duration update on track change
+                            self.seek_mem = -1
                                 
                         self.first_run = False
                         

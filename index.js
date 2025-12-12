@@ -144,28 +144,9 @@ peppyScreensaver.prototype.onStart = function() {
       last_outputdevice = self.getAlsaConfigParam('outputdevice');
       last_softmixer = self.getAlsaConfigParam('softvolume');
       
-      //self.updateALSAConfigFile().then (function(){
-             
-        // modular alsa 16bit/24bit enabled, switch if needed
-        //var alsaconf = parseInt(self.config.get('alsaSelection'),10);
-        //if (alsaconf == 0) {
-        //    self.get_output_enabled(MPD_include).then (function(OutEnabled) {
-        //        if (OutEnabled) {
-        //            self.switch_alsaConfig(alsaconf);                      
-        //        }  
-        //    });
-            
-            
-        // native DSD enabled, switch if needed
-        //} else {            
-        //    self.get_output_enabled(MPD_include).then (function(OutEnabled) {
-        //        if (!OutEnabled) {
-        //            self.switch_alsaConfig(alsaconf);                      
-        //        }
-        //    });
-        //}
-      
-      //});
+      // Apply saved ALSA config on startup
+      var alsaconf = parseInt(self.config.get('alsaSelection'),10);
+      self.switch_alsaConfig(alsaconf);
       
       // event callback if outputdevice or mixer changed
       self.commandRouter.sharedVars.registerCallback('alsa.outputdevice', self.switch_alsaModular.bind(self));
