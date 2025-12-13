@@ -69,7 +69,7 @@ cd /data/plugins/user_interface/peppy_screensaver
 
 If you see SDL2 errors:
 ```bash
-sudo apt-get install -y libsdl2-ttf-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0
+sudo apt-get install -y libsdl2-ttf-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0 libfftw3-double3
 ```
 
 ### Permission errors on uninstall
@@ -100,10 +100,12 @@ Pre-built binaries included for all supported architectures. No compilation requ
 
 ## License
 
-ISC
+MIT
 
 ## Credits
 
 - PeppyMeter/PeppySpectrum: [project-owner](https://github.com/project-owner)
 - Original Volumio plugin: [2aCD](https://github.com/2aCD-creator)
-- Volumio 4 refactoring: foonerd
+- Volumio 4 refactoring: [foonerd](https://github.com/foonerd)
+- Volumio 4 pythonising: Wheaten
+- Plugin Q&A testing: Wheaten
