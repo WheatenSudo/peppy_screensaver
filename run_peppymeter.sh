@@ -12,8 +12,8 @@ if [ -z "$ARCH" ]; then
 fi
 
 # Set library paths for plugin-local dependencies
-# Include pygame.libs for bundled SDL2 from manylinux wheel
-export LD_LIBRARY_PATH="$PLUGIN_DIR/lib/$ARCH:$PLUGIN_DIR/lib/$ARCH/python/pygame.libs:$LD_LIBRARY_PATH"
+# Include pygame.libs and pillow.libs for bundled libs from manylinux wheels
+export LD_LIBRARY_PATH="$PLUGIN_DIR/lib/$ARCH:$PLUGIN_DIR/lib/$ARCH/python/pygame.libs:$PLUGIN_DIR/lib/$ARCH/python/pillow.libs:$LD_LIBRARY_PATH"
 export PYTHONPATH="$PLUGIN_DIR/lib/$ARCH/python:$PYTHONPATH"
 export DISPLAY=:0
 
