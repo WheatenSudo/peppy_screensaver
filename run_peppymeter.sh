@@ -17,5 +17,17 @@ export LD_LIBRARY_PATH="$PLUGIN_DIR/lib/$ARCH:$PLUGIN_DIR/lib/$ARCH/python/pygam
 export PYTHONPATH="$PLUGIN_DIR/lib/$ARCH/python:$PYTHONPATH"
 export DISPLAY=:0
 
+# x64-specific fixes
+if [ "$ARCH" = "x64" ]; then
+  # Disable software rendering to avoid swrast/llvmpipe crashes
+  export LIBGL_ALWAYS_SOFTWARE=0
+  export SDL_RENDER_DRIVER=x11
+  export SDL_FRAMEBUFFER_ACCELERATION=0
+  
+  # Disable MIT-SHM (shared memory) - causes BadValue errors in VMs
+  export QT_X11_NO_MITSHM=1
+  export _X11_NO_MITSHM=1
+fi
+
 cd "$PLUGIN_DIR"
 python3 ./screensaver/volumio_peppymeter.py

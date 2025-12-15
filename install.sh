@@ -176,6 +176,40 @@ chmod -R 755 "$PLUGIN_DIR/bin"
 chown -R volumio:volumio "$PLUGIN_DIR/bin"
 
 # =============================================================================
+# SETUP: Architecture-specific ALSA template
+# =============================================================================
+echo ""
+echo "Setting up ALSA templates..."
+
+# x64 requires different ALSA config due to mmap incompatibility with meter plugin
+# On x64, meter is NOT inline with main audio - separate MPD output provides meter data
+if [ "$ARCH" = "x64" ]; then
+  echo "x64 detected: Installing x64-specific ALSA configuration..."
+  
+  # The x64 template has meter bypassed in main audio path
+  # MPD's separate output (mpd_peppyalsa via mpd_custom.conf) provides meter data
+  X64_TMPL="$PLUGIN_DIR/Peppyalsa.postPeppyalsa.5.x64.conf.tmpl"
+  
+  if [ -f "$X64_TMPL" ]; then
+    # Overwrite each standard template with x64 version
+    for tmpl in "$PLUGIN_DIR"/Peppyalsa.*.5.conf.tmpl; do
+      if [ -f "$tmpl" ] && [ "$tmpl" != "$X64_TMPL" ]; then
+        # Backup original
+        cp "$tmpl" "${tmpl}.pi.bak"
+        # Replace with x64 version
+        cp "$X64_TMPL" "$tmpl"
+        echo "  Applied x64 config to: $(basename $tmpl)"
+      fi
+    done
+    echo "x64 ALSA setup complete"
+    echo "Note: On x64, VU meter data comes from separate MPD output (mpd_peppyalsa)"
+  else
+    echo "WARNING: x64 template not found: $X64_TMPL"
+    echo "         Using standard template - meter may not work on x64"
+  fi
+fi
+
+# =============================================================================
 # SETUP: Prevent segmentation fault on Pi (arm/armv7)
 # =============================================================================
 if [ "$ARCH" = "arm" ] || [ "$ARCH" = "armv7" ]; then
@@ -292,6 +326,10 @@ echo ""
 echo "Library: $PLUGIN_DIR/lib/libpeppyalsa.so"
 echo "Python packages: $LIB_SOURCE/python"
 echo "Templates: $DATA_DIR"
+if [ "$ARCH" = "x64" ]; then
+  echo ""
+  echo "x64 Note: Meter uses separate MPD output (not inline)"
+fi
 echo "=========================================="
 echo ""
 
