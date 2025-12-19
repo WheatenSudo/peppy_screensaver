@@ -114,8 +114,14 @@ peppyScreensaver.prototype.onStart = function() {
     // copy MPD_include file and set output
     if (!fs.existsSync(MPD_include)) {self.copy_MPD_include(MPD_include_tmpl, MPD_include);}
     // only if it not correct deleted on uninstall
+    // x64: ALWAYS enable MPD output - it's the only source for meter data
+    var arch_cmd = 'cat /etc/os-release | grep ^VOLUMIO_ARCH | tr -d \'VOLUMIO_ARCH="\'';
+    var arch = '';
+    try { arch = execSync(arch_cmd).toString().trim(); } catch(e) {}
+    var isX64 = (arch === 'x64');
     var enableDSD = parseInt(self.config.get('alsaSelection'),10) == 1 ? true : false;
-    self.MPD_setOutput(MPD_include, enableDSD);
+    var enableMPDOutput = isX64 ? true : enableDSD;
+    self.MPD_setOutput(MPD_include, enableMPDOutput);
 
     // check pygame 2 installed
     self.get_SDL2_enabled().then(function (SDL) { use_SDL2 = SDL; });
@@ -992,9 +998,15 @@ peppyScreensaver.prototype.install_mkfifo = function (fifoName) {
 peppyScreensaver.prototype.switch_alsaConfig = function (alsaConf) {
     const self = this;
     var defer = libQ.defer();
+    // x64: ALWAYS enable MPD output - it's the only source for meter data
+    var arch_cmd = 'cat /etc/os-release | grep ^VOLUMIO_ARCH | tr -d \'VOLUMIO_ARCH="\'';
+    var arch = '';
+    try { arch = execSync(arch_cmd).toString().trim(); } catch(e) {}
+    var isX64 = (arch === 'x64');
     var enableDSD = alsaConf == 1 ? true : false;
+    var enableMPDOutput = isX64 ? true : enableDSD;
     
-    self.MPD_setOutput(MPD_include, enableDSD)
+    self.MPD_setOutput(MPD_include, enableMPDOutput)
 //        .then(self.MPD_allowedFormats.bind(self, MPD, enableDSD)) // not more needed
         .then(self.writeAsoundConfigModular.bind(self, alsaConf))
         .then(self.updateALSAConfigFile.bind(self))

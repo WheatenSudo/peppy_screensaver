@@ -76,7 +76,8 @@ pcm_scope_type.peppyalsa {
 
 # null output - use ALSA null instead of hw:Dummy for x64 compatibility
 pcm.dummy {
-  type null
+  type hw
+  card Dummy
 }
 
 # needed for some sound cards otherwise Spotify stops playing after 10 seconds
