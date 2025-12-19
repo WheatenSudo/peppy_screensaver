@@ -119,9 +119,23 @@ peppyScreensaver.prototype.onStart = function() {
     var arch = '';
     try { arch = execSync(arch_cmd).toString().trim(); } catch(e) {}
     var isX64 = (arch === 'x64');
-    // Always enable MPD output for meter data - more reliable than inline meter
-    var enableMPDOutput = true;
+    // MPD output for meter: enable on x64 (always) or Pi DSD mode
+    // Disable for Pi modular ALSA - uses inline meter instead
+    var enableDSD = parseInt(self.config.get('alsaSelection'),10) == 1 ? true : false;
+    var enableMPDOutput = isX64 ? true : enableDSD;
     self.MPD_setOutput(MPD_include, enableMPDOutput);
+    
+    // Set MPD output state via mpc (config file alone doesn't control live state)
+    var mpcCmd = enableMPDOutput ? 'mpc enable 1' : 'mpc disable 1';
+    setTimeout(function() {
+        exec(mpcCmd, { uid: 1000, gid: 1000 }, function(error, stdout, stderr) {
+            if (error) {
+                self.logger.warn('peppy_screensaver: Startup - Failed to set MPD output: ' + error);
+            } else {
+                self.logger.info('peppy_screensaver: Startup - MPD output 1 ' + (enableMPDOutput ? 'enabled' : 'disabled'));
+            }
+        });
+    }, 3000); // Wait for MPD to be ready at startup
 
     // check pygame 2 installed
     self.get_SDL2_enabled().then(function (SDL) { use_SDL2 = SDL; });
@@ -207,8 +221,14 @@ peppyScreensaver.prototype.onStart = function() {
             if (ScreenTimeout > 0){ // for 0 do nothing
                 self.Timeout = setInterval(function () {
                   if (!fs.existsSync(runFlag)){
-                    // Enable mpd_peppyalsa output before starting meter
-                    exec('mpc enable 1 2>/dev/null', function(err) {});
+                    // Enable mpd_peppyalsa output before starting meter - only for DSD mode or x64
+                    // Modular ALSA uses inline meter and output 1 must stay disabled
+                    var alsaConf = parseInt(self.config.get('alsaSelection'),10);
+                    var arch = '';
+                    try { arch = execSync('cat /etc/os-release | grep ^VOLUMIO_ARCH | tr -d \'VOLUMIO_ARCH="\'').toString().trim(); } catch(e) {}
+                    if (alsaConf == 1 || arch === 'x64') {
+                        exec('mpc enable 1 2>/dev/null', function(err) {});
+                    }
                     exec( RunPeppyFile, { uid: 1000, gid: 1000 }, function (error, stdout, stderr) {        
                     if (error !== null) {
                         self.logger.error(id + 'Error start PeppyMeter: ' + error);
@@ -1027,8 +1047,10 @@ peppyScreensaver.prototype.switch_alsaConfig = function (alsaConf) {
     var arch = '';
     try { arch = execSync(arch_cmd).toString().trim(); } catch(e) {}
     var isX64 = (arch === 'x64');
-    // Always enable MPD output for meter data - more reliable than inline meter
-    var enableMPDOutput = true;
+    // MPD output for meter: enable on x64 (always) or Pi DSD mode
+    // Disable for Pi modular ALSA - uses inline meter instead
+    var enableDSD = alsaConf == 1 ? true : false;
+    var enableMPDOutput = isX64 ? true : enableDSD;
     
     self.MPD_setOutput(MPD_include, enableMPDOutput)
 //        .then(self.MPD_allowedFormats.bind(self, MPD, enableDSD)) // not more needed
@@ -1036,7 +1058,20 @@ peppyScreensaver.prototype.switch_alsaConfig = function (alsaConf) {
         .then(self.updateALSAConfigFile.bind(self))
 //        .then(self.updateMountpoint.bind(self, MPD, MPDtmpl))     // not more needed with MPD_include
 //        .then(self.recreate_mpdconf.bind(self))                   // not more needed with MPD_include
-        .then(self.restartMpd.bind(self));
+        .then(self.restartMpd.bind(self))
+        .then(function() {
+            // Set MPD output state via mpc after restart (config file alone doesn't control live state)
+            var mpcCmd = enableMPDOutput ? 'mpc enable 1' : 'mpc disable 1';
+            setTimeout(function() {
+                exec(mpcCmd, { uid: 1000, gid: 1000 }, function(error, stdout, stderr) {
+                    if (error) {
+                        self.logger.warn('peppy_screensaver: Failed to set MPD output: ' + error);
+                    } else {
+                        self.logger.info('peppy_screensaver: MPD output 1 ' + (enableMPDOutput ? 'enabled' : 'disabled'));
+                    }
+                });
+            }, 1000); // Wait for MPD to fully restart
+        });
     defer.resolve();
     return defer.promise;    
 };
@@ -1412,9 +1447,8 @@ peppyScreensaver.prototype.writeAsoundConfigModular = function (alsaConf) {
         }
 
     } else {  // modular alsa
-        // Use simple passthrough - meter data comes from separate MPD output
-        // This matches x64 behavior and is more reliable during service transitions
-        conf = asounddata.replace('${alsaDirect}', 'Peppyalsa');
+        // Use inline meter to capture ALL audio sources (MPD, DAB/FM, airplay, etc.)
+        conf = asounddata.replace('${alsaMeter}', 'Peppyalsa');
     }
 
     conf = conf.replace('${alsaMeter}', 'peppy1_off');
