@@ -49,7 +49,7 @@ from volumio_configfileparser import (
     TIME_REMAINING_POS, TIMECOLOR,
     FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTCOLOR,
     FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L,
-    METER_BKP, RANDOM_TITLE, SPECTRUM, SPECTRUM_SIZE
+    METER_BKP, RANDOM_TITLE, SPECTRUM, SPECTRUM_SIZE, SPECTRUM_POS
 )
 
 from volumio_spectrum import SpectrumOutput
@@ -182,7 +182,7 @@ class MetadataWatcher:
 # ScrollingLabel - Replaces TextAnimator threads
 # =============================================================================
 class ScrollingLabel:
-    """Single-threaded scrolling text label with bidirectional scroll."""
+    """Single-threaded scrolling text label with bidirectional scroll and self-backing."""
     
     def __init__(self, font, color, pos, box_width, center=False,
                  speed_px_per_sec=40, pause_ms=400):
@@ -201,6 +201,21 @@ class ScrollingLabel:
         self.direction = 1
         self._last_time = pg.time.get_ticks()
         self._pause_until = 0
+        self._backing = None
+        self._backing_rect = None
+
+    def capture_backing(self, surface):
+        """Capture backing surface for this label's area."""
+        if not self.pos or self.box_width <= 0:
+            return
+        x, y = self.pos
+        height = self.font.get_height()
+        self._backing_rect = pg.Rect(x, y, self.box_width, height)
+        try:
+            self._backing = surface.subsurface(self._backing_rect).copy()
+        except Exception:
+            self._backing = pg.Surface((self._backing_rect.width, self._backing_rect.height))
+            self._backing.fill((0, 0, 0))
 
     def update_text(self, new_text):
         """Update text content, reset scroll position if changed."""
@@ -216,11 +231,15 @@ class ScrollingLabel:
         self._last_time = pg.time.get_ticks()
 
     def draw(self, surface):
-        """Draw label, handling scroll animation."""
+        """Draw label, handling scroll animation with self-backing."""
         if not self.surf or not self.pos or self.box_width <= 0:
             return
         x, y = self.pos
         box_rect = pg.Rect(x, y, self.box_width, self.text_h)
+        
+        # Restore backing before drawing (prevents artifacts)
+        if self._backing and self._backing_rect:
+            surface.blit(self._backing, self._backing_rect.topleft)
         
         # Text fits - no scrolling needed
         if self.text_w <= self.box_width:
@@ -749,6 +768,14 @@ def start_display_output(pm, callback, meter_config_volumio):
         title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=center_flag) if title_pos else None
         album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, center=center_flag) if album_pos else None
         
+        # Capture backing for scrollers (after static assets drawn)
+        if artist_scroller:
+            artist_scroller.capture_backing(screen)
+        if title_scroller:
+            title_scroller.capture_backing(screen)
+        if album_scroller:
+            album_scroller.capture_backing(screen)
+        
         # Type rect
         type_rect = pg.Rect(type_pos[0], type_pos[1], type_dim[0], type_dim[1]) if (type_pos and type_dim) else None
         
@@ -784,8 +811,23 @@ def start_display_output(pm, callback, meter_config_volumio):
             "time_color": time_color,
             "type_color": type_color,
             "art_mask": mc_vol.get(ALBUMART_MSK),
-            "art_border": mc_vol.get(ALBUMBORDER)
+            "art_border": mc_vol.get(ALBUMBORDER),
+            "spectrum_backing": None,
+            "spectrum_rect": None
         }
+        
+        # Capture spectrum backing if spectrum visible
+        if mc_vol.get(SPECTRUM_VISIBLE) and mc_vol.get(SPECTRUM_SIZE):
+            spec_size = mc_vol.get(SPECTRUM_SIZE)
+            spec_pos = mc_vol.get(SPECTRUM_POS, (0, 0))
+            if spec_pos is None:
+                spec_pos = (0, 0)
+            spec_rect = pg.Rect(spec_pos[0], spec_pos[1], spec_size[0], spec_size[1])
+            try:
+                overlay_state["spectrum_backing"] = screen.subsurface(spec_rect).copy()
+                overlay_state["spectrum_rect"] = spec_rect
+            except Exception:
+                pass
     
     # -------------------------------------------------------------------------
     # Render format icon
@@ -1017,6 +1059,10 @@ def start_display_output(pm, callback, meter_config_volumio):
             
             # Format icon
             render_format_icon(track_type, ov["type_rect"], ov["type_color"])
+            
+            # Restore spectrum backing before update (prevents double-draw artifacts)
+            if ov.get("spectrum_backing") and ov.get("spectrum_rect"):
+                screen.blit(ov["spectrum_backing"], ov["spectrum_rect"].topleft)
             
             # Spectrum and callbacks
             callback.peppy_meter_update()

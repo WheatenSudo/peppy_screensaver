@@ -66,6 +66,7 @@ FONTCOLOR = "font.color"
 SPECTRUM_VISIBLE = "spectrum.visible"
 SPECTRUM = "spectrum.name"
 SPECTRUM_SIZE = "spectrum.size"
+SPECTRUM_POS = "spectrum.pos"
 
 class Volumio_ConfigFileParser(object):
     """ Configuration file parser """
@@ -306,5 +307,9 @@ class Volumio_ConfigFileParser(object):
             d[SPECTRUM_SIZE] = (int(spl[0]), int(spl[1]))
         except:
             d[SPECTRUM_SIZE] = None
+        try:
+            spl = config_file.get(section, SPECTRUM_POS).split(',')		
+            d[SPECTRUM_POS] = (int(spl[0]), int(spl[1]))
+        except:
+            d[SPECTRUM_POS] = None
         return d
-
