@@ -67,6 +67,20 @@ try:
 except Exception:
     PIL_AVAILABLE = False
 
+# Debug logging - set to True for troubleshooting, False for production
+# When enabled, writes to /tmp/peppy_debug.log (warning: can fill disk on volatile /tmp)
+DEBUG_LOG = False
+DEBUG_LOG_FILE = '/tmp/peppy_debug.log'
+
+def log_debug(msg):
+    """Write debug message to log file if DEBUG_LOG is enabled."""
+    if DEBUG_LOG:
+        try:
+            with open(DEBUG_LOG_FILE, 'a') as f:
+                f.write(f"{msg}\n")
+        except Exception:
+            pass
+
 # Runtime paths
 PeppyRunning = '/tmp/peppyrunning'
 CurDir = os.getcwd()
@@ -626,11 +640,11 @@ def start_display_output(pm, callback, meter_config_volumio):
             except Exception as e:
                 print(f"[draw_static_assets] Failed to load screen.bgr '{screen_bgr_name}': {e}")
         
-        # Draw meter background at meter position
+        # Draw meter background at meter position (convert_alpha for PNG transparency)
         if bgr_name:
             try:
                 img_path = os.path.join(meter_path, bgr_name)
-                img = pg.image.load(img_path).convert()
+                img = pg.image.load(img_path).convert_alpha()
                 screen.blit(img, (meter_x, meter_y))
             except Exception as e:
                 print(f"[draw_static_assets] Failed to load bgr '{bgr_name}': {e}")
@@ -755,7 +769,10 @@ def start_display_output(pm, callback, meter_config_volumio):
                 try:
                     backing.append((r, screen.subsurface(r).copy()))
                 except Exception:
-                    backing.append((r, pg.Surface((r.width, r.height)).convert()))
+                    # Fallback: create black surface (not undefined .convert() content)
+                    s = pg.Surface((r.width, r.height))
+                    s.fill((0, 0, 0))
+                    backing.append((r, s))
         
         if artist_pos:
             capture_rect(artist_pos, artist_box, artist_font.get_height())

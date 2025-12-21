@@ -78,6 +78,33 @@ use a separate non-NEON build with higher CPU usage.
 
 ## Troubleshooting
 
+### Debug Logging
+
+For diagnosing display issues (white backgrounds, missing graphics, etc.), enable debug logging:
+
+1. Edit `/data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/volumio_peppymeter.py`
+2. Find `DEBUG_LOG = False` near the top (around line 71)
+3. Change to `DEBUG_LOG = True`
+4. Restart the plugin
+5. Check `/tmp/peppy_debug.log` for diagnostic output
+
+**Warning:** Disable after troubleshooting - the log file can fill /tmp (volatile RAM disk) and crash the player on extended use.
+
+### Configuration Diagnostic
+
+To dump the current meter configuration (useful for diagnosing missing backgrounds, wrong paths, etc.):
+
+```bash
+cd /data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/screensaver/peppymeter
+python3 /data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/diagnose_config.py
+```
+
+This shows:
+- Current meter name and settings
+- Background image keys (screen.bgr, bgr.filename, fgr.filename)
+- Meter folder paths
+- Available image files
+
 ### Plugin won't start
 
 Check logs:
@@ -160,5 +187,5 @@ MIT
 - PeppyMeter/PeppySpectrum: [project-owner](https://github.com/project-owner)
 - Original Volumio plugin: [2aCD](https://github.com/2aCD-creator)
 - Volumio 4 refactoring: [foonerd](https://github.com/foonerd)
-- Volumio 4 pythonising: Wheaten
+- Volumio 4 pythonising: [Wheaten](https://github.com/WheatenSudo)
 - Plugin Q&A testing: Wheaten
