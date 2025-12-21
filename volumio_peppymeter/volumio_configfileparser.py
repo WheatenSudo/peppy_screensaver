@@ -30,6 +30,8 @@ ALBUMART_POS = "albumart.pos"
 ALBUMART_DIM = "albumart.dimension"
 ALBUMART_MSK = "albumart.mask"
 ALBUMBORDER = "albumart.border"
+ALBUMART_ROT = "albumart.rotation"
+ALBUMART_ROT_SPEED = "albumart.rotation.speed"
 
 PLAY_TXT_CENTER = "playinfo.text.center"
 PLAY_TITLE_POS = "playinfo.title.pos"
@@ -170,6 +172,16 @@ class Volumio_ConfigFileParser(object):
             d[ALBUMBORDER] = config_file.getint(section, ALBUMBORDER)
         except:
             d[ALBUMBORDER] = None
+
+        try:
+            d[ALBUMART_ROT] = config_file.getboolean(section, ALBUMART_ROT)
+        except:
+            d[ALBUMART_ROT] = False  # default: rotation disabled
+
+        try:
+            d[ALBUMART_ROT_SPEED] = config_file.getfloat(section, ALBUMART_ROT_SPEED)
+        except:
+            d[ALBUMART_ROT_SPEED] = 0.0  # default: no rotation
 
         try:
             d[PLAY_TXT_CENTER] = config_file.getboolean(section, PLAY_TXT_CENTER)

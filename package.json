@@ -1,6 +1,6 @@
 {
   "name": "peppy_screensaver",
-  "version": "3.0.5",
+  "version": "3.0.6",
   "description": "PeppyMeter screensaver for Volumio",
   "main": "index.js",
   "scripts": {
@@ -26,7 +26,7 @@
       "amd64"
     ],
     "details": "VU meter screensaver using PeppyMeter",
-    "changelog": "3.0.5 - Fixed text descender artifacts on scrolling labels."
+    "changelog": "3.0.6 - Add LP-style album art rotation, set_color() to use surfarray for direct pixel manipulation."
   },
   "engines": {
     "node": ">=20",

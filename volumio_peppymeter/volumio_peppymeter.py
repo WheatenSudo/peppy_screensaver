@@ -18,6 +18,7 @@ import time
 import ctypes
 import resource
 import io
+import math
 import requests
 import pygame as pg
 import socketio
@@ -40,6 +41,7 @@ from volumio_configfileparser import (
     COLOR_DEPTH, POSITION_TYPE, POS_X, POS_Y, START_ANIMATION,
     FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
+    ALBUMART_ROT, ALBUMART_ROT_SPEED,
     PLAY_TXT_CENTER, PLAY_CENTER, PLAY_MAX,
     PLAY_TITLE_POS, PLAY_TITLE_COLOR, PLAY_TITLE_MAX, PLAY_TITLE_STYLE,
     PLAY_ARTIST_POS, PLAY_ARTIST_COLOR, PLAY_ARTIST_MAX, PLAY_ARTIST_STYLE,
@@ -62,7 +64,7 @@ except Exception:
     CAIROSVG_AVAILABLE = False
 
 try:
-    from PIL import Image, ImageOps
+    from PIL import Image, ImageOps, ImageDraw
     PIL_AVAILABLE = True
 except Exception:
     PIL_AVAILABLE = False
@@ -294,6 +296,206 @@ class ScrollingLabel:
 
 
 # =============================================================================
+# Album Art Renderer (round cover + optional LP rotation)
+# =============================================================================
+class AlbumArtRenderer:
+    """
+    Handles album art loading, optional file mask or circular crop,
+    scaling, rotation (LP-style), and drawing with optional circular border.
+    Rotation is optional and disabled if config params are missing.
+    """
+
+    def __init__(self, base_path, meter_folder, art_pos, art_dim, screen_size,
+                 font_color=(255, 255, 255), border_width=0,
+                 mask_filename=None, rotate_enabled=False, rotate_rpm=0.0,
+                 angle_step_deg=0.5, spindle_radius=5, ring_radius=None,
+                 circle=True):
+        self.base_path = base_path
+        self.meter_folder = meter_folder
+        self.art_pos = art_pos
+        self.art_dim = art_dim
+        self.screen_size = screen_size
+        self.font_color = font_color
+        self.border_width = border_width
+        self.mask_filename = mask_filename
+        self.rotate_enabled = bool(rotate_enabled)
+        self.rotate_rpm = float(rotate_rpm)
+        self.angle_step_deg = float(angle_step_deg)
+        self.spindle_radius = max(1, int(spindle_radius))
+        self.ring_radius = ring_radius or max(3, min(art_dim[0], art_dim[1]) // 10)
+        self.circle = bool(circle)
+
+        # Derived center
+        self.art_center = (int(art_pos[0] + art_dim[0] // 2),
+                           int(art_pos[1] + art_dim[1] // 2)) if (art_pos and art_dim) else None
+
+        # Runtime cache
+        self._requests = requests.Session()
+        self._current_url = None
+        self._scaled_surf = None
+        self._rotated_cache_surf = None
+        self._last_angle = 0.0
+
+        # Mask path (if provided)
+        self._mask_path = None
+        if self.mask_filename:
+            self._mask_path = os.path.join(self.base_path, self.meter_folder, self.mask_filename)
+
+        # Compute backing rect (extended for rotation)
+        self._backing_rect = None
+        self._backing_surf = None
+
+    def _apply_mask_with_pil(self, img_bytes):
+        """Load via PIL, apply file mask or circular mask; return pygame surface."""
+        try:
+            pil_img = Image.open(img_bytes).convert("RGBA")
+            pil_img = pil_img.resize(self.art_dim)
+
+            # Provided mask file takes precedence
+            if self._mask_path and os.path.exists(self._mask_path):
+                mask = Image.open(self._mask_path).convert('L')
+                if mask.size != pil_img.size:
+                    mask = mask.resize(pil_img.size)
+                pil_img.putalpha(ImageOps.invert(mask))
+            # Otherwise circular crop if enabled
+            elif self.circle:
+                mask = Image.new('L', pil_img.size, 0)
+                draw = ImageDraw.Draw(mask)
+                draw.ellipse((0, 0, pil_img.size[0], pil_img.size[1]), fill=255)
+                pil_img.putalpha(mask)
+
+            return pg.image.fromstring(pil_img.tobytes(), pil_img.size, "RGBA")
+        except Exception:
+            return None
+
+    def _load_surface_from_bytes(self, img_bytes):
+        """Load pygame surface directly from bytes (no mask)."""
+        try:
+            surf = pg.image.load(img_bytes).convert_alpha()
+        except Exception:
+            try:
+                img_bytes.seek(0)
+                surf = pg.image.load(img_bytes).convert()
+            except Exception:
+                surf = None
+        return surf
+
+    def load_from_url(self, url):
+        """Fetch image from URL, build scaled surface, reset rotation cache."""
+        self._current_url = url
+        self._scaled_surf = None
+        self._rotated_cache_surf = None
+        self._last_angle = 0.0
+
+        if not url:
+            return
+
+        try:
+            real_url = url if not url.startswith("/") else f"http://localhost:3000{url}"
+            resp = self._requests.get(real_url, timeout=3)
+            if not (resp.ok and "image" in resp.headers.get("Content-Type", "").lower()):
+                return
+
+            img_bytes = io.BytesIO(resp.content)
+
+            # Prefer PIL to handle mask/circle
+            surf = None
+            if PIL_AVAILABLE:
+                surf = self._apply_mask_with_pil(img_bytes)
+
+            # Fallback when PIL not available
+            if surf is None:
+                surf = self._load_surface_from_bytes(img_bytes)
+
+            if surf:
+                try:
+                    self._scaled_surf = pg.transform.smoothscale(surf, self.art_dim)
+                except Exception:
+                    self._scaled_surf = pg.transform.scale(surf, self.art_dim)
+
+        except Exception:
+            pass  # Silent fail
+
+    def _compute_angle(self, status, current_time):
+        """Compute rotation angle based on RPM and playback status."""
+        status = (status or "").lower()
+        if not self.rotate_enabled or not self._scaled_surf:
+            return 0.0
+
+        rpm = max(0.0, self.rotate_rpm)
+        if status == "play" and rpm > 0.0:
+            # degrees per second = rpm * 6
+            return (current_time * rpm * 6.0) % 360.0
+        # paused/stopped/no speed: keep last angle (no motion)
+        return self._last_angle
+
+    def get_backing_rect(self):
+        """Get backing rect for this renderer, extended for rotation if needed."""
+        if not self.art_pos or not self.art_dim:
+            return None
+        
+        if self.rotate_enabled and self.rotate_rpm > 0.0:
+            # Rotated bounding box = diagonal = side * sqrt(2), clamped to screen
+            diag = int(max(self.art_dim[0], self.art_dim[1]) * math.sqrt(2)) + 2
+            center_x = self.art_pos[0] + self.art_dim[0] // 2
+            center_y = self.art_pos[1] + self.art_dim[1] // 2
+            ext_x = max(0, center_x - diag // 2)
+            ext_y = max(0, center_y - diag // 2)
+            # Clamp to screen bounds
+            ext_w = min(diag, self.screen_size[0] - ext_x)
+            ext_h = min(diag, self.screen_size[1] - ext_y)
+            return pg.Rect(ext_x, ext_y, ext_w, ext_h)
+        else:
+            return pg.Rect(self.art_pos[0], self.art_pos[1], self.art_dim[0], self.art_dim[1])
+
+    def render(self, screen, status, current_time):
+        """Render album art (rotated if enabled) plus border and LP center markers."""
+        if not self.art_pos or not self.art_dim or not self._scaled_surf:
+            return
+
+        if self.rotate_enabled and self.art_center and self.rotate_rpm > 0.0:
+            angle = self._compute_angle(status, current_time)
+
+            # Update rotation cache only when angle changed enough
+            if (self._rotated_cache_surf is None or abs(angle - self._last_angle) >= self.angle_step_deg):
+                try:
+                    rotated = pg.transform.rotate(self._scaled_surf, -angle)  # clockwise LP feel
+                except Exception:
+                    rotated = pg.transform.rotate(self._scaled_surf, int(-angle))
+                self._rotated_cache_surf = rotated
+                self._last_angle = angle
+
+            rot = self._rotated_cache_surf
+            if rot:
+                rot_rect = rot.get_rect(center=self.art_center)
+                screen.blit(rot, rot_rect.topleft)
+            else:
+                screen.blit(self._scaled_surf, self.art_pos)
+        else:
+            # Rotation disabled or parameters missing - static
+            screen.blit(self._scaled_surf, self.art_pos)
+
+        # Border: circle if cover is round; else rect
+        if self.border_width:
+            try:
+                if self.circle and self.art_center:
+                    rad = min(self.art_dim[0], self.art_dim[1]) // 2
+                    pg.draw.circle(screen, self.font_color, self.art_center, rad, self.border_width)
+                else:
+                    pg.draw.rect(screen, self.font_color, pg.Rect(self.art_pos, self.art_dim), self.border_width)
+            except Exception:
+                pass
+
+        # LP center markers (spindle + inner thin ring)
+        if self.rotate_enabled and self.art_center and self.rotate_rpm > 0.0:
+            try:
+                pg.draw.circle(screen, self.font_color, self.art_center, self.spindle_radius, 0)
+                pg.draw.circle(screen, self.font_color, self.art_center, self.ring_radius, 1)
+            except Exception:
+                pass
+
+
+# =============================================================================
 # CallBack - Interface for upstream Peppymeter
 # =============================================================================
 class CallBack:
@@ -386,16 +588,19 @@ class CallBack:
 # Helper Functions
 # =============================================================================
 def sanitize_color(val, default=(255, 255, 255)):
-    """Convert various color formats to RGB tuple."""
+    """Convert various color formats to RGB tuple, clamped to 0-255."""
+    def clamp(v):
+        return max(0, min(255, int(v)))
+    
     try:
         if isinstance(val, pg.Color):
-            return (val.r, val.g, val.b)
+            return (clamp(val.r), clamp(val.g), clamp(val.b))
         if isinstance(val, (tuple, list)) and len(val) >= 3:
-            return (int(val[0]), int(val[1]), int(val[2]))
+            return (clamp(val[0]), clamp(val[1]), clamp(val[2]))
         if isinstance(val, str):
             parts = [p.strip() for p in val.split(",")]
             if len(parts) >= 3:
-                return (int(parts[0]), int(parts[1]), int(parts[2]))
+                return (clamp(parts[0]), clamp(parts[1]), clamp(parts[2]))
     except Exception:
         pass
     return default
@@ -414,6 +619,16 @@ def as_int(val, default=0):
                 return default
             return int(float(val))
         return int(val)
+    except Exception:
+        return default
+
+
+def as_float(val, default=0.0):
+    """Safely convert value to float."""
+    if val is None:
+        return default
+    try:
+        return float(val)
     except Exception:
         return default
 
@@ -807,6 +1022,30 @@ def start_display_output(pm, callback, meter_config_volumio):
         if art_pos and art_dim:
             capture_rect(art_pos, art_dim[0], art_dim[1])
         
+        # Create album art renderer (handles rotation if enabled)
+        album_renderer = None
+        if art_pos and art_dim:
+            rotate_enabled = mc_vol.get(ALBUMART_ROT, False)
+            rotate_rpm = as_float(mc_vol.get(ALBUMART_ROT_SPEED), 0.0)
+            screen_size = (cfg[SCREEN_INFO][WIDTH], cfg[SCREEN_INFO][HEIGHT])
+            
+            album_renderer = AlbumArtRenderer(
+                base_path=cfg.get(BASE_PATH),
+                meter_folder=cfg.get(SCREEN_INFO)[METER_FOLDER],
+                art_pos=art_pos,
+                art_dim=art_dim,
+                screen_size=screen_size,
+                font_color=font_color,
+                border_width=mc_vol.get(ALBUMBORDER) or 0,
+                mask_filename=mc_vol.get(ALBUMART_MSK),
+                rotate_enabled=rotate_enabled,
+                rotate_rpm=rotate_rpm,
+                angle_step_deg=0.5,
+                spindle_radius=5,
+                ring_radius=max(3, min(art_dim[0], art_dim[1]) // 10),
+                circle=rotate_enabled  # Only circular when rotation enabled
+            )
+        
         # Create scrollers
         artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, center=center_flag) if artist_pos else None
         title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=center_flag) if title_pos else None
@@ -847,15 +1086,12 @@ def start_display_output(pm, callback, meter_config_volumio):
             "sample_pos": sample_pos,
             "type_pos": type_pos,
             "type_rect": type_rect,
-            "art_pos": art_pos,
-            "art_dim": art_dim,
             "sample_font": sample_font,
             "sample_box": sample_box,
             "font_color": font_color,
             "time_color": time_color,
             "type_color": type_color,
-            "art_mask": mc_vol.get(ALBUMART_MSK),
-            "art_border": mc_vol.get(ALBUMBORDER)
+            "album_renderer": album_renderer,
         }
     
     # -------------------------------------------------------------------------
@@ -975,60 +1211,7 @@ def start_display_output(pm, callback, meter_config_volumio):
             bitdepth = meta.get("bitdepth", "")
             track_type = meta.get("trackType", "")
             bitrate = meta.get("bitrate", "")
-            
-            # Album art
-            if ov["art_pos"] and ov["art_dim"]:
-                if albumart != last_cover_url:
-                    last_cover_url = albumart
-                    cover_img = None
-                    scaled_cover_img = None  # Reset cached scaled image
-                    try:
-                        if albumart:
-                            url = albumart if not albumart.startswith("/") else f"http://localhost:3000{albumart}"
-                            resp = requests.get(url, timeout=3)
-                            if resp.ok and "image" in resp.headers.get("Content-Type", "").lower():
-                                img_bytes = io.BytesIO(resp.content)
-                                
-                                if ov["art_mask"] and PIL_AVAILABLE:
-                                    # Use PIL for masked albumart
-                                    pil_img = Image.open(img_bytes).convert("RGBA")
-                                    pil_img = pil_img.resize(ov["art_dim"])
-                                    
-                                    # Load and apply mask
-                                    mask_path = os.path.join(cfg.get(BASE_PATH), cfg.get(SCREEN_INFO)[METER_FOLDER], ov["art_mask"])
-                                    if os.path.exists(mask_path):
-                                        mask = Image.open(mask_path).convert('L')
-                                        if mask.size != pil_img.size:
-                                            mask = mask.resize(pil_img.size)
-                                        pil_img.putalpha(ImageOps.invert(mask))
-                                    
-                                    cover_img = pg.image.fromstring(pil_img.tobytes(), pil_img.size, "RGBA")
-                                else:
-                                    # Standard pygame loading
-                                    try:
-                                        cover_img = pg.image.load(img_bytes).convert_alpha()
-                                    except Exception:
-                                        img_bytes.seek(0)
-                                        cover_img = pg.image.load(img_bytes).convert()
-                                
-                                # Scale ONCE on load, not every frame
-                                if cover_img:
-                                    try:
-                                        scaled_cover_img = pg.transform.smoothscale(cover_img, ov["art_dim"])
-                                    except Exception:
-                                        scaled_cover_img = cover_img
-                    except Exception:
-                        pass
-                
-                # Blit cached scaled image (no per-frame scaling)
-                if scaled_cover_img:
-                    screen.blit(scaled_cover_img, ov["art_pos"])
-                    
-                    # Border
-                    if ov["art_border"]:
-                        pg.draw.rect(screen, ov["font_color"], 
-                                    pg.Rect(ov["art_pos"], ov["art_dim"]), 
-                                    ov["art_border"])
+            status = meta.get("status", "")
             
             # Text scrollers
             if ov["artist_scroller"]:
@@ -1091,6 +1274,13 @@ def start_display_output(pm, callback, meter_config_volumio):
             
             # Format icon
             render_format_icon(track_type, ov["type_rect"], ov["type_color"])
+            
+            # Album art (round + optional rotating) - draw LAST to sit on top
+            album_renderer = ov.get("album_renderer")
+            if album_renderer:
+                if albumart != getattr(album_renderer, "_current_url", None):
+                    album_renderer.load_from_url(albumart)
+                album_renderer.render(screen, status, current_time)
             
             # Spectrum and callbacks
             callback.peppy_meter_update()
