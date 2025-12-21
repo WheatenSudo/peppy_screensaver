@@ -49,7 +49,7 @@ from volumio_configfileparser import (
     TIME_REMAINING_POS, TIMECOLOR,
     FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTCOLOR,
     FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L,
-    METER_BKP, RANDOM_TITLE, SPECTRUM, SPECTRUM_SIZE, SPECTRUM_POS
+    METER_BKP, RANDOM_TITLE, SPECTRUM, SPECTRUM_SIZE
 )
 
 from volumio_spectrum import SpectrumOutput
@@ -837,23 +837,8 @@ def start_display_output(pm, callback, meter_config_volumio):
             "time_color": time_color,
             "type_color": type_color,
             "art_mask": mc_vol.get(ALBUMART_MSK),
-            "art_border": mc_vol.get(ALBUMBORDER),
-            "spectrum_backing": None,
-            "spectrum_rect": None
+            "art_border": mc_vol.get(ALBUMBORDER)
         }
-        
-        # Capture spectrum backing if spectrum visible
-        if mc_vol.get(SPECTRUM_VISIBLE) and mc_vol.get(SPECTRUM_SIZE):
-            spec_size = mc_vol.get(SPECTRUM_SIZE)
-            spec_pos = mc_vol.get(SPECTRUM_POS, (0, 0))
-            if spec_pos is None:
-                spec_pos = (0, 0)
-            spec_rect = pg.Rect(spec_pos[0], spec_pos[1], spec_size[0], spec_size[1])
-            try:
-                overlay_state["spectrum_backing"] = screen.subsurface(spec_rect).copy()
-                overlay_state["spectrum_rect"] = spec_rect
-            except Exception:
-                pass
     
     # -------------------------------------------------------------------------
     # Render format icon
@@ -1085,10 +1070,6 @@ def start_display_output(pm, callback, meter_config_volumio):
             
             # Format icon
             render_format_icon(track_type, ov["type_rect"], ov["type_color"])
-            
-            # Restore spectrum backing before update (prevents double-draw artifacts)
-            if ov.get("spectrum_backing") and ov.get("spectrum_rect"):
-                screen.blit(ov["spectrum_backing"], ov["spectrum_rect"].topleft)
             
             # Spectrum and callbacks
             callback.peppy_meter_update()

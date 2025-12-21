@@ -6,7 +6,6 @@
 
 import os
 import time
-# import pygame as pg
 from threading import Thread
 
 from spectrum.spectrum import Spectrum
@@ -94,7 +93,14 @@ class SpectrumOutput(Thread):
         if hasattr(self, 'sp') and self.sp is not None:
             # if background is ready
             if self.sp.components[0].content is not None:
+                # Clip drawing to spectrum rect (constrains reflections)
+                prev_clip = self.util.pygame_screen.get_clip()
+                self.util.pygame_screen.set_clip(self.util.screen_rect)
+                
                 self.sp.clean_draw_update()
+                
+                # Restore previous clip
+                self.util.pygame_screen.set_clip(prev_clip)
 
     
     def stop_thread(self):
@@ -104,5 +110,3 @@ class SpectrumOutput(Thread):
             self.sp.stop()
         if hasattr(self, 'FadeIn'):
             del self.FadeIn
-
-        
