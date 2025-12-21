@@ -82,7 +82,7 @@ use a separate non-NEON build with higher CPU usage.
 
 For diagnosing display issues (white backgrounds, missing graphics, etc.), enable debug logging:
 
-1. Edit `/data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/volumio_peppymeter.py`
+1. Edit `/data/plugins/user_interface/peppy_screensaver/screensaver/volumio_peppymeter.py`
 2. Find `DEBUG_LOG = False` near the top (around line 71)
 3. Change to `DEBUG_LOG = True`
 4. Restart the plugin
@@ -95,8 +95,8 @@ For diagnosing display issues (white backgrounds, missing graphics, etc.), enabl
 To dump the current meter configuration (useful for diagnosing missing backgrounds, wrong paths, etc.):
 
 ```bash
-cd /data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/screensaver/peppymeter
-python3 /data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/diagnose_config.py
+cd /data/plugins/user_interface/peppy_screensaver/screensaver/peppymeter
+python3 ../diagnose_config.py
 ```
 
 This shows:
@@ -144,13 +144,17 @@ If CPU usage is higher than expected:
 
 ```
 peppy_screensaver/
-  bin/{arch}/           - peppyalsa-client binary
-  lib/{arch}/           - libpeppyalsa.so library
-  lib/{arch}/python/    - Python packages (pygame, socketio, etc.)
-  packages/{arch}/      - Python packages archive (extracted on install)
-  screensaver/          - PeppyMeter and PeppySpectrum (cloned on install)
-  asound/               - ALSA configuration
-  i18n/                 - Translations
+  bin/{arch}/             - peppyalsa-client binary
+  lib/{arch}/             - libpeppyalsa.so library
+  lib/{arch}/python/      - Python packages (pygame, socketio, etc.)
+  packages/{arch}/        - Python packages archive (extracted on install)
+  screensaver/            - PeppyMeter runtime
+    peppymeter/           - PeppyMeter module
+    volumio_peppymeter.py - Main screensaver script
+    volumio_spectrum.py   - Spectrum analyzer module
+    diagnose_config.py    - Configuration diagnostic tool
+  asound/                 - ALSA configuration
+  i18n/                   - Translations
 ```
 
 ## Build Information

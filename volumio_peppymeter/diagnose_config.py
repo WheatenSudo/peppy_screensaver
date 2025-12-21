@@ -2,14 +2,27 @@
 # diagnose_config.py - PeppyMeter configuration diagnostic tool
 #
 # Usage:
-#   cd /data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/screensaver/peppymeter
-#   python3 /path/to/diagnose_config.py
+#   cd /data/plugins/user_interface/peppy_screensaver/screensaver/peppymeter
+#   python3 ../diagnose_config.py
+#
+# Or with explicit PYTHONPATH (if pygame not found):
+#   cd /data/plugins/user_interface/peppy_screensaver/screensaver/peppymeter
+#   PYTHONPATH=/data/plugins/user_interface/peppy_screensaver/lib/arm/python python3 ../diagnose_config.py
 #
 # This script dumps the meter configuration structure to help diagnose
 # issues with backgrounds, overlays, and meter settings.
 
 import os
 import sys
+
+# Try to auto-detect and add pygame path
+plugin_base = '/data/plugins/user_interface/peppy_screensaver'
+arch_dirs = ['armv7', 'armv8', 'arm', 'x64']
+for arch in arch_dirs:
+    py_path = os.path.join(plugin_base, 'lib', arch, 'python')
+    if os.path.exists(py_path):
+        sys.path.insert(0, py_path)
+        break
 
 # Add peppymeter to path
 sys.path.insert(0, os.getcwd())
@@ -19,7 +32,9 @@ try:
     from configfileparser import *
 except ImportError as e:
     print(f"ERROR: Must run from peppymeter directory")
-    print(f"  cd /data/plugins/user_interface/peppy_screensaver/volumio_peppymeter/screensaver/peppymeter")
+    print(f"  cd /data/plugins/user_interface/peppy_screensaver/screensaver/peppymeter")
+    print(f"  python3 ../diagnose_config.py")
+    print(f"")
     print(f"Import error: {e}")
     sys.exit(1)
 
