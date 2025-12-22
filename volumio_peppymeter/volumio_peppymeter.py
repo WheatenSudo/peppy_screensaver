@@ -1065,6 +1065,19 @@ def start_display_output(pm, callback, meter_config_volumio):
         # Reset cover
         last_cover_url = None
         cover_img = None
+
+        # Load meter foreground (fgr) to draw last, above rotating cover
+        fgr_surf = None
+        fgr_name = mc.get(FGR_FILENAME)
+        meter_x = mc.get('meter.x', 0)
+        meter_y = mc.get('meter.y', 0)
+        try:
+            if fgr_name:
+                meter_path = os.path.join(cfg.get(BASE_PATH), cfg.get(SCREEN_INFO)[METER_FOLDER])
+                fgr_path = os.path.join(meter_path, fgr_name)
+                fgr_surf = pg.image.load(fgr_path).convert_alpha()
+        except Exception as e:
+            print(f"[overlay_init] Failed to load fgr '{fgr_name}': {e}")
         
         # Store state
         overlay_state = {
@@ -1092,6 +1105,8 @@ def start_display_output(pm, callback, meter_config_volumio):
             "time_color": time_color,
             "type_color": type_color,
             "album_renderer": album_renderer,
+            "fgr_surf": fgr_surf,
+            "fgr_pos": (meter_x, meter_y),
         }
     
     # -------------------------------------------------------------------------
@@ -1281,6 +1296,11 @@ def start_display_output(pm, callback, meter_config_volumio):
                 if albumart != getattr(album_renderer, "_current_url", None):
                     album_renderer.load_from_url(albumart)
                 album_renderer.render(screen, status, current_time)
+
+            # Draw the meter foreground above everything (needles + rotating cover)
+            fgr_surf = ov.get("fgr_surf")
+            if fgr_surf:
+                screen.blit(fgr_surf, ov["fgr_pos"])
             
             # Spectrum and callbacks
             callback.peppy_meter_update()
