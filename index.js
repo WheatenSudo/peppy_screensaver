@@ -211,7 +211,7 @@ peppyScreensaver.prototype.onStart = function() {
         var isVolatile = state.volatile === true;
         
         // Detect track change within same service (next/previous)
-        var isTrackChange = (state.service === lastService && state.uri !== lastUri && lastUri !== '');
+        var isTrackChange = (state.service === lastService && state.uri && lastUri && state.uri !== lastUri);
         
         if (state.status === 'play' && !lastStateIsPlaying) {
           if (DSP_ON || Spotify_ON || Airplay_ON || Other_ON) {
@@ -244,13 +244,19 @@ peppyScreensaver.prototype.onStart = function() {
             // Only stop on genuine pause/stop, not during track transitions
             // Ignore volatile states and brief stop during track change
             if (!isVolatile && !isTrackChange) {
-                if (state.status === 'pause' || (state.status === 'stop' && state.service === 'webradio')) {
-                    if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
-                    clearInterval(self.Timeout);
-                    self.Timeout = null;
-                    lastStateIsPlaying = false;
-                } else if (state.status === 'stop' && state.service !== 'webradio' && state.uri === '' && lastUri === '') {
+                var shouldStop = false;
+                
+                if (state.status === 'pause') {
+                    shouldStop = true;
+                } else if (state.status === 'stop') {
+                    if (state.service === 'webradio') {
+                        shouldStop = false;
+                    } else {
+                        shouldStop = true;
+                    }
+                }
                     // True stop - queue cleared, not a track transition
+                if (shouldStop) {
                     if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
                     clearInterval(self.Timeout);
                     self.Timeout = null;
