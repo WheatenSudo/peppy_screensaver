@@ -61,9 +61,65 @@ After installation, enable and configure the plugin:
 - Multiple VU meter skins
 - Spectrum analyzer mode
 - Album art display with optional LP rotation effect
+- Cassette deck skins with rotating reel animation
 - Track info overlay with scrolling text
 - Random meter rotation
 - Touch to exit
+
+## Skin Configuration
+
+Skins are configured via `meters.txt` in the meter folder. Extended features
+require `config.extend = True` in the meter section.
+
+### Cassette Reel Animation
+
+Cassette-style skins can display rotating tape reels that spin during playback.
+Reels pause when playback is paused and maintain their position.
+
+```ini
+[MyCassetteSkin]
+meter.type = linear
+config.extend = True
+screen.bgr = cassette_background.png
+bgr.filename = cassette_bgr.png
+
+# Left reel (supply reel)
+reel.left.filename = reel_left.png
+reel.left.pos = 100,150
+reel.left.center = 137,187
+
+# Right reel (take-up reel)
+reel.right.filename = reel_right.png
+reel.right.pos = 300,150
+reel.right.center = 355,187
+
+# Rotation speed in RPM (revolutions per minute)
+reel.rotation.speed = 1.5
+```
+
+| Option | Description |
+|--------|-------------|
+| `reel.left.filename` | PNG file for left reel graphic |
+| `reel.left.pos` | Top-left position (x,y) for drawing |
+| `reel.left.center` | Center point (x,y) for rotation pivot |
+| `reel.right.filename` | PNG file for right reel graphic |
+| `reel.right.pos` | Top-left position (x,y) for drawing |
+| `reel.right.center` | Center point (x,y) for rotation pivot |
+| `reel.rotation.speed` | Rotation speed in RPM (default: 0) |
+
+The reel graphics should be PNG files with transparency. The center point
+defines the rotation axis and should be the visual center of the reel hub.
+
+### Album Art Rotation
+
+Album art can rotate like a vinyl record during playback:
+
+```ini
+albumart.pos = 500,100
+albumart.dimension = 200,200
+albumart.rotate = True
+albumart.rotate.speed = 33.3
+```
 
 ## Performance
 

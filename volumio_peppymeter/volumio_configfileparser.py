@@ -33,6 +33,15 @@ ALBUMBORDER = "albumart.border"
 ALBUMART_ROT = "albumart.rotation"
 ALBUMART_ROT_SPEED = "albumart.rotation.speed"
 
+# Reel configuration constants (for cassette skins)
+REEL_LEFT_FILE = "reel.left.filename"
+REEL_LEFT_POS = "reel.left.pos"
+REEL_LEFT_CENTER = "reel.left.center"
+REEL_RIGHT_FILE = "reel.right.filename"
+REEL_RIGHT_POS = "reel.right.pos"
+REEL_RIGHT_CENTER = "reel.right.center"
+REEL_ROTATION_SPEED = "reel.rotation.speed"
+
 PLAY_TXT_CENTER = "playinfo.text.center"
 PLAY_TITLE_POS = "playinfo.title.pos"
 PLAY_TITLE_COLOR = "playinfo.title.color"
@@ -182,6 +191,40 @@ class Volumio_ConfigFileParser(object):
             d[ALBUMART_ROT_SPEED] = config_file.getfloat(section, ALBUMART_ROT_SPEED)
         except:
             d[ALBUMART_ROT_SPEED] = 0.0  # default: no rotation
+
+        # --- Reel configuration (for cassette skins) ---
+        try:
+            d[REEL_LEFT_FILE] = config_file.get(section, REEL_LEFT_FILE)
+        except:
+            d[REEL_LEFT_FILE] = None
+        try:
+            spl = config_file.get(section, REEL_LEFT_POS).split(',')
+            d[REEL_LEFT_POS] = (int(spl[0]), int(spl[1]))
+        except:
+            d[REEL_LEFT_POS] = None
+        try:
+            spl = config_file.get(section, REEL_LEFT_CENTER).split(',')
+            d[REEL_LEFT_CENTER] = (int(spl[0]), int(spl[1]))
+        except:
+            d[REEL_LEFT_CENTER] = None
+        try:
+            d[REEL_RIGHT_FILE] = config_file.get(section, REEL_RIGHT_FILE)
+        except:
+            d[REEL_RIGHT_FILE] = None
+        try:
+            spl = config_file.get(section, REEL_RIGHT_POS).split(',')
+            d[REEL_RIGHT_POS] = (int(spl[0]), int(spl[1]))
+        except:
+            d[REEL_RIGHT_POS] = None
+        try:
+            spl = config_file.get(section, REEL_RIGHT_CENTER).split(',')
+            d[REEL_RIGHT_CENTER] = (int(spl[0]), int(spl[1]))
+        except:
+            d[REEL_RIGHT_CENTER] = None
+        try:
+            d[REEL_ROTATION_SPEED] = config_file.getfloat(section, REEL_ROTATION_SPEED)
+        except:
+            d[REEL_ROTATION_SPEED] = 0.0
 
         try:
             d[PLAY_TXT_CENTER] = config_file.getboolean(section, PLAY_TXT_CENTER)

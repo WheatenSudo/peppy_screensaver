@@ -54,6 +54,23 @@ from volumio_configfileparser import (
     METER_BKP, RANDOM_TITLE, SPECTRUM, SPECTRUM_SIZE
 )
 
+# Reel configuration constants - import with fallback for backward compatibility
+try:
+    from volumio_configfileparser import (
+        REEL_LEFT_FILE, REEL_LEFT_POS, REEL_LEFT_CENTER,
+        REEL_RIGHT_FILE, REEL_RIGHT_POS, REEL_RIGHT_CENTER,
+        REEL_ROTATION_SPEED
+    )
+except ImportError:
+    # Fallback if volumio_configfileparser not updated yet
+    REEL_LEFT_FILE = "reel.left.filename"
+    REEL_LEFT_POS = "reel.left.pos"
+    REEL_LEFT_CENTER = "reel.left.center"
+    REEL_RIGHT_FILE = "reel.right.filename"
+    REEL_RIGHT_POS = "reel.right.pos"
+    REEL_RIGHT_CENTER = "reel.right.center"
+    REEL_ROTATION_SPEED = "reel.rotation.speed"
+
 from volumio_spectrum import SpectrumOutput
 
 # Optional SVG support for pygame < 2
@@ -493,6 +510,115 @@ class AlbumArtRenderer:
                 pg.draw.circle(screen, self.font_color, self.art_center, self.ring_radius, 1)
             except Exception:
                 pass
+
+
+# =============================================================================
+# Reel Renderer (for cassette skins with rotating reels)
+# =============================================================================
+class ReelRenderer:
+    """
+    Handles file-based reel graphics with rotation for cassette-style skins.
+    Simpler than AlbumArtRenderer - no URL fetching, masks, or borders.
+    Loads PNG file once and rotates based on playback status.
+    """
+
+    def __init__(self, base_path, meter_folder, filename, pos, center, 
+                 rotate_rpm=1.5, angle_step_deg=1.0):
+        """
+        Initialize reel renderer.
+        
+        :param base_path: Base path for meter assets
+        :param meter_folder: Meter folder name
+        :param filename: PNG filename for the reel graphic
+        :param pos: Top-left position tuple (x, y) for drawing
+        :param center: Center point tuple (x, y) for rotation pivot
+        :param rotate_rpm: Rotation speed in RPM
+        :param angle_step_deg: Minimum angle change to trigger re-render
+        """
+        self.base_path = base_path
+        self.meter_folder = meter_folder
+        self.filename = filename
+        self.pos = pos
+        self.center = center
+        self.rotate_rpm = float(rotate_rpm)
+        self.angle_step_deg = float(angle_step_deg)
+        
+        # Runtime state
+        self._original_surf = None
+        self._rotated_surf = None
+        self._last_angle = 0.0
+        self._loaded = False
+        
+        # Load the reel image
+        self._load_image()
+    
+    def _load_image(self):
+        """Load the reel PNG file."""
+        if not self.filename:
+            return
+        
+        try:
+            img_path = os.path.join(self.base_path, self.meter_folder, self.filename)
+            if os.path.exists(img_path):
+                self._original_surf = pg.image.load(img_path).convert_alpha()
+                self._loaded = True
+            else:
+                print(f"[ReelRenderer] File not found: {img_path}")
+        except Exception as e:
+            print(f"[ReelRenderer] Failed to load '{self.filename}': {e}")
+    
+    def _compute_angle(self, status, current_time):
+        """Compute rotation angle based on RPM and playback status."""
+        status = (status or "").lower()
+        
+        if status == "play" and self.rotate_rpm > 0.0:
+            # degrees per second = rpm * 6
+            return (current_time * self.rotate_rpm * 6.0) % 360.0
+        
+        # Paused/stopped - maintain last angle
+        return self._last_angle
+    
+    def get_backing_rect(self):
+        """Get bounding rectangle for backing surface (extended for rotation)."""
+        if not self._original_surf or not self.center:
+            return None
+        
+        w = self._original_surf.get_width()
+        h = self._original_surf.get_height()
+        
+        # Rotated bounding box is larger (diagonal)
+        diag = int(max(w, h) * math.sqrt(2)) + 4
+        
+        ext_x = self.center[0] - diag // 2
+        ext_y = self.center[1] - diag // 2
+        
+        return pg.Rect(ext_x, ext_y, diag, diag)
+    
+    def render(self, screen, status, current_time):
+        """Render the reel (rotated if playing)."""
+        if not self._loaded or not self._original_surf:
+            return
+        
+        if not self.center:
+            # No rotation - just blit at position
+            screen.blit(self._original_surf, self.pos)
+            return
+        
+        # Compute current angle
+        angle = self._compute_angle(status, current_time)
+        
+        # Only re-render if angle changed enough
+        if self._rotated_surf is None or abs(angle - self._last_angle) >= self.angle_step_deg:
+            try:
+                # Rotate clockwise (negative angle)
+                self._rotated_surf = pg.transform.rotate(self._original_surf, -angle)
+            except Exception:
+                self._rotated_surf = pg.transform.rotate(self._original_surf, int(-angle))
+            self._last_angle = angle
+        
+        # Get rect centered on rotation center
+        rot_rect = self._rotated_surf.get_rect(center=self.center)
+        screen.blit(self._rotated_surf, rot_rect.topleft)
 
 
 # =============================================================================
@@ -1046,6 +1172,48 @@ def start_display_output(pm, callback, meter_config_volumio):
                 circle=rotate_enabled  # Only circular when rotation enabled
             )
         
+        # Create reel renderers (for cassette skins)
+        reel_left_renderer = None
+        reel_right_renderer = None
+        
+        reel_left_file = mc_vol.get(REEL_LEFT_FILE)
+        reel_left_pos = mc_vol.get(REEL_LEFT_POS)
+        reel_left_center = mc_vol.get(REEL_LEFT_CENTER)
+        reel_right_file = mc_vol.get(REEL_RIGHT_FILE)
+        reel_right_pos = mc_vol.get(REEL_RIGHT_POS)
+        reel_right_center = mc_vol.get(REEL_RIGHT_CENTER)
+        reel_rpm = as_float(mc_vol.get(REEL_ROTATION_SPEED), 0.0)
+        
+        if reel_left_file and reel_left_center:
+            reel_left_renderer = ReelRenderer(
+                base_path=cfg.get(BASE_PATH),
+                meter_folder=cfg.get(SCREEN_INFO)[METER_FOLDER],
+                filename=reel_left_file,
+                pos=reel_left_pos,
+                center=reel_left_center,
+                rotate_rpm=reel_rpm,
+                angle_step_deg=1.0
+            )
+            # Capture backing for left reel
+            backing_rect = reel_left_renderer.get_backing_rect()
+            if backing_rect:
+                capture_rect((backing_rect.x, backing_rect.y), backing_rect.width, backing_rect.height)
+        
+        if reel_right_file and reel_right_center:
+            reel_right_renderer = ReelRenderer(
+                base_path=cfg.get(BASE_PATH),
+                meter_folder=cfg.get(SCREEN_INFO)[METER_FOLDER],
+                filename=reel_right_file,
+                pos=reel_right_pos,
+                center=reel_right_center,
+                rotate_rpm=reel_rpm,
+                angle_step_deg=1.0
+            )
+            # Capture backing for right reel
+            backing_rect = reel_right_renderer.get_backing_rect()
+            if backing_rect:
+                capture_rect((backing_rect.x, backing_rect.y), backing_rect.width, backing_rect.height)
+        
         # Create scrollers
         artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, center=center_flag) if artist_pos else None
         title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=center_flag) if title_pos else None
@@ -1105,6 +1273,8 @@ def start_display_output(pm, callback, meter_config_volumio):
             "time_color": time_color,
             "type_color": type_color,
             "album_renderer": album_renderer,
+            "reel_left_renderer": reel_left_renderer,
+            "reel_right_renderer": reel_right_renderer,
             "fgr_surf": fgr_surf,
             "fgr_pos": (meter_x, meter_y),
         }
@@ -1289,6 +1459,15 @@ def start_display_output(pm, callback, meter_config_volumio):
             
             # Format icon
             render_format_icon(track_type, ov["type_rect"], ov["type_color"])
+            
+            # Render cassette reels (before album art)
+            reel_left = ov.get("reel_left_renderer")
+            reel_right = ov.get("reel_right_renderer")
+            
+            if reel_left:
+                reel_left.render(screen, status, current_time)
+            if reel_right:
+                reel_right.render(screen, status, current_time)
             
             # Album art (round + optional rotating) - draw LAST to sit on top
             album_renderer = ov.get("album_renderer")
