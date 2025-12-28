@@ -315,6 +315,52 @@
                              "value": 120
                             }
                             ]
+                },
+                {
+                "id": "performance_conf",
+                "element": "section",
+                "label": "TRANSLATE.PEPPY_SCREENSAVER.PERFORMANCE_CONF",
+                "description": "TRANSLATE.PEPPY_SCREENSAVER.PERFORMANCE_DESC",
+                "icon": "fa-dashboard",
+                "hidden": false,
+                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"savePerformanceConf"},
+                "saveButton": {
+                              "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
+                              "data": [
+                                      "frameRate",
+                                      "updateInterval"
+                                      ]
+                              },
+                "content": [
+                            {
+                             "id": "frameRate",
+                             "element": "input",
+                             "type": "number",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FRAME_RATE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FRAME_RATE",
+                             "attributes": [
+                                             {"placeholder": 30},
+                                             {"maxlength": 2},
+                                             {"min": 10},
+                                             {"max": 60}
+                                           ],
+                             "value": 30
+                            },
+                            {
+                             "id": "updateInterval",
+                             "element": "input",
+                             "type": "number",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.UPDATE_INTERVAL_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.UPDATE_INTERVAL",
+                             "attributes": [
+                                             {"placeholder": 2},
+                                             {"maxlength": 2},
+                                             {"min": 1},
+                                             {"max": 10}
+                                           ],
+                             "value": 2
+                            }
+                            ]
                 }
   ]
 }

@@ -41,7 +41,7 @@ from configfileparser import (
 
 from volumio_configfileparser import (
     Volumio_ConfigFileParser, EXTENDED_CONF, METER_VISIBLE, SPECTRUM_VISIBLE,
-    COLOR_DEPTH, POSITION_TYPE, POS_X, POS_Y, START_ANIMATION,
+    COLOR_DEPTH, POSITION_TYPE, POS_X, POS_Y, START_ANIMATION, UPDATE_INTERVAL,
     FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
@@ -1457,7 +1457,8 @@ def start_display_output(pm, callback, meter_config_volumio):
     
     # OPTIMIZATION: Frame counter for spectrum throttling
     frame_counter = 0
-    SPECTRUM_UPDATE_INTERVAL = 4  # Update spectrum every N frames (reduces CPU)
+    # Read update.interval from config (set via UI), default to 2
+    SPECTRUM_UPDATE_INTERVAL = meter_config_volumio.get(UPDATE_INTERVAL, 2)
     
     # OPTIMIZATION: Idle detection - skip work when playback stopped
     last_status = ""

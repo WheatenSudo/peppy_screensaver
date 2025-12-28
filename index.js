@@ -33,7 +33,7 @@ var RunPeppyFile = PluginPath + '/run_peppymeter.sh';
 var PeppyConf = PeppyPath + '/config.txt';
 const meterFolderStr = 'meter.folder'; // entry in config.txt to detect template folder
 
-var minmax = new Array(7);
+var minmax = new Array(8);
 var last_outputdevice, last_softmixer;
 var peppy_config, base_folder_P;
 
@@ -559,6 +559,21 @@ peppyScreensaver.prototype.getUIConfig = function() {
 
             }
             
+            // section 2 - Performance settings -----------------------------
+            // frame rate
+            var frameRate = parseInt(peppy_config.current['frame.rate'], 10) || 30;
+            uiconf.sections[2].content[0].value = frameRate;
+            minmax[6] = [uiconf.sections[2].content[0].attributes[2].min,
+                uiconf.sections[2].content[0].attributes[3].max,
+                uiconf.sections[2].content[0].attributes[0].placeholder];
+            
+            // update interval (from peppy config.txt)
+            var updateInterval = parseInt(peppy_config.current['update.interval'], 10) || 2;
+            uiconf.sections[2].content[1].value = updateInterval;
+            minmax[7] = [uiconf.sections[2].content[1].attributes[2].min,
+                uiconf.sections[2].content[1].attributes[3].max,
+                uiconf.sections[2].content[1].attributes[0].placeholder];
+            
         } else {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));            
         }
@@ -881,6 +896,62 @@ peppyScreensaver.prototype.saveVUMeterConf = function (confData) {
     }
   }, 500);
 }; // end saveVUMeterConf -------------------------------------
+
+// called when 'save' button pressed on Performance settings
+// ----------------------------------------------------------
+peppyScreensaver.prototype.savePerformanceConf = function (confData) {
+  const self = this;
+  let noChanges = true;
+  uiNeedsUpdate = false;
+  
+  if (fs.existsSync(PeppyConf)){
+    
+    // write frame rate
+    if (Number.isNaN(parseInt(confData.frameRate, 10)) || !isFinite(confData.frameRate)) {
+        uiNeedsUpdate = true;
+        setTimeout(function () {
+            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FRAME_RATE') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+        }, 500);
+    } else {
+        confData.frameRate = self.minmax('FRAME_RATE', confData.frameRate, minmax[6]);
+        if (peppy_config.current['frame.rate'] != confData.frameRate) {
+            peppy_config.current['frame.rate'] = confData.frameRate;
+            noChanges = false;
+        }
+    }
+    
+    // write update interval (to peppy config.txt for Python to read)
+    if (Number.isNaN(parseInt(confData.updateInterval, 10)) || !isFinite(confData.updateInterval)) {
+        uiNeedsUpdate = true;
+        setTimeout(function () {
+            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.UPDATE_INTERVAL') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+        }, 500);
+    } else {
+        confData.updateInterval = self.minmax('UPDATE_INTERVAL', confData.updateInterval, minmax[7]);
+        if (peppy_config.current['update.interval'] != confData.updateInterval) {
+            peppy_config.current['update.interval'] = confData.updateInterval;
+            noChanges = false;
+        }
+    }
+    
+    if (!noChanges) {
+        fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, {whitespace: true}));
+        // Restart meter to apply new settings
+        if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
+    }
+  } else {
+      self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));
+  }
+  
+  if (uiNeedsUpdate) {self.updateUIConfig();}
+  setTimeout(function () {
+    if (noChanges) {
+        self.commandRouter.pushToastMessage('info', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+    } else {
+        self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+    }
+  }, 500);
+}; // end savePerformanceConf -------------------------------------
 
 // global functions
 //-------------------------------------------------------------

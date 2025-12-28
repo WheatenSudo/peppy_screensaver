@@ -66,7 +66,12 @@
     "NOMETERSWARNING_TITLE":"Sie haben einen leeren Meter-Folder ausgewählt!",
     "NOMETERSWARNING":"Bitte kopieren Sie ein korrektes Meter-Template in den entsprechenden Auflösungs-Ordner in: /data/INTERNAL/peppy_screensaver/templates",
     "NOTINLIST_TITLE":"List-Modus Warnung",
-    "NOTINLIST":"Liste kann nicht gespeichert werden.<br />Folgende Einträge sind nicht als Meter-Abschnitt vorhanden :<br /><br />"
-
+    "NOTINLIST":"Liste kann nicht gespeichert werden.<br />Folgende Einträge sind nicht als Meter-Abschnitt vorhanden :<br /><br />",
+    "PERFORMANCE_CONF":"Leistungseinstellungen",
+    "PERFORMANCE_DESC":"Bildrate und Update-Intervalle anpassen, um die CPU-Auslastung zu optimieren",
+    "FRAME_RATE":"Bildrate",
+    "FRAME_RATE_DOC":"Bildwiederholrate in Bildern pro Sekunde (FPS).<br /><br /><b>Standard: 30</b><br /><br />Niedrigere Werte reduzieren die CPU-Auslastung, können aber weniger flüssig erscheinen.<br />Empfohlen: 20-30 für Pi 4, 15-20 für Pi 3",
+    "UPDATE_INTERVAL":"Update-Intervall",
+    "UPDATE_INTERVAL_DOC":"Aktualisierungsfrequenz für Spektrum und Zeiger.<br /><br /><b>Standard: 2</b> (Aktualisierung jeden 2. Frame)<br /><br />Höhere Werte reduzieren die CPU-Auslastung, verringern aber die visuelle Reaktionsfähigkeit.<br />Bei 30 FPS mit Intervall 2: 15 Updates/Sek<br />Bei 20 FPS mit Intervall 3: 6,7 Updates/Sek"
   }
 }

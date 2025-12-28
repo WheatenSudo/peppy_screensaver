@@ -66,7 +66,12 @@
     "NOMETERSWARNING_TITLE":"Vous avez sélectionné un dossier de compteur vide!",
     "NOMETERSWARNING":"Veuillez copier un modèle de compteur valide dans le dossier de résolution dans: /data/INTERNAL/peppy_screensaver/templates",
     "NOTINLIST_TITLE":"Avertissement en mode liste",
-    "NOTINLIST":"La liste ne peut pas être enregistrée.<br />Les entrées de suivi ne sont pas disponibles dans la section Compteur:<br /><br />"
-
+    "NOTINLIST":"La liste ne peut pas être enregistrée.<br />Les entrées de suivi ne sont pas disponibles dans la section Compteur:<br /><br />",
+    "PERFORMANCE_CONF":"Paramètres de performance",
+    "PERFORMANCE_DESC":"Ajuster le taux de rafraîchissement et les intervalles de mise à jour pour optimiser l'utilisation du CPU",
+    "FRAME_RATE":"Taux de rafraîchissement",
+    "FRAME_RATE_DOC":"Taux de rafraîchissement en images par seconde (FPS).<br /><br /><b>Par défaut: 30</b><br /><br />Des valeurs plus basses réduisent l'utilisation du CPU mais peuvent sembler moins fluides.<br />Recommandé: 20-30 pour Pi 4, 15-20 pour Pi 3",
+    "UPDATE_INTERVAL":"Intervalle de mise à jour",
+    "UPDATE_INTERVAL_DOC":"Fréquence de mise à jour du spectre et des aiguilles.<br /><br /><b>Par défaut: 2</b> (mise à jour toutes les 2 images)<br /><br />Des valeurs plus élevées réduisent l'utilisation du CPU mais diminuent la réactivité visuelle.<br />À 30 FPS avec intervalle 2: 15 mises à jour/sec<br />À 20 FPS avec intervalle 3: 6,7 mises à jour/sec"
   }
 }

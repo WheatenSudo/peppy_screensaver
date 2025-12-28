@@ -24,6 +24,8 @@ POSITION_TYPE = "position.type"
 POS_X = "position.x"
 POS_Y = "position.y"
 
+UPDATE_INTERVAL = "update.interval"
+
 EXTENDED_CONF = "config.extend"
 METER_VISIBLE = "meter.visible"
 ALBUMART_POS = "albumart.pos"
@@ -118,6 +120,11 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio[POS_Y] = c.getint(CURRENT, POS_Y)
         except:
             self.meter_config_volumio[POS_Y] = 0
+
+        try:
+            self.meter_config_volumio[UPDATE_INTERVAL] = c.getint(CURRENT, UPDATE_INTERVAL)
+        except:
+            self.meter_config_volumio[UPDATE_INTERVAL] = 2
 
         try:
             self.meter_config_volumio[FONT_PATH] = c.get(CURRENT, FONT_PATH)
