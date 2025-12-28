@@ -26,7 +26,7 @@
       "amd64"
     ],
     "details": "VU meter screensaver using PeppyMeter",
-    "changelog": "3.0.7 - Add rotating reel support for cassette-style skins."
+    "changelog": "3.0.7 - Performance optimizations. Add rotating reel support for cassette-style skins."
   },
   "engines": {
     "node": ">=20",
