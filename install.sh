@@ -112,7 +112,7 @@ PEPPYMETER_DIR="$PLUGIN_DIR/screensaver/peppymeter"
 
 if [ ! -d "$PEPPYMETER_DIR" ]; then
   mkdir -p "$PLUGIN_DIR/screensaver"
-  git clone --depth 1 https://github.com/project-owner/PeppyMeter.git "$PEPPYMETER_DIR"
+  git clone --depth 1 https://github.com/foonerd/PeppyMeter.git "$PEPPYMETER_DIR"
 else
   echo "PeppyMeter already installed"
 fi
@@ -126,7 +126,7 @@ echo "Installing PeppySpectrum..."
 PEPPYSPECTRUM_DIR="$PLUGIN_DIR/screensaver/spectrum"
 
 if [ ! -d "$PEPPYSPECTRUM_DIR" ]; then
-  git clone --depth 1 https://github.com/project-owner/PeppySpectrum.git "$PEPPYSPECTRUM_DIR"
+  git clone --depth 1 https://github.com/foonerd/PeppySpectrum.git "$PEPPYSPECTRUM_DIR"
 else
   echo "PeppySpectrum already installed"
 fi
