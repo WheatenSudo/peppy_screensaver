@@ -75,6 +75,10 @@ PLAY_ARTIST_STYLE = "PLAY_ARTIST_STYLE"
 PLAY_ALBUM_STYLE = "PLAY_ALBUM_STYLE"
 PLAY_CENTER = "playinfo.center"
 PLAY_MAX = "playinfo.maxwidth"
+SCROLLING_SPEED = "playinfo.scrolling.speed"
+SCROLLING_SPEED_ARTIST = "playinfo.scrolling.speed.artist"
+SCROLLING_SPEED_TITLE = "playinfo.scrolling.speed.title"
+SCROLLING_SPEED_ALBUM = "playinfo.scrolling.speed.album"
 PLAY_TYPE_POS = "playinfo.type.pos"
 PLAY_TYPE_COLOR = "playinfo.type.color"
 PLAY_TYPE_DIM = "playinfo.type.dimension"
@@ -190,6 +194,24 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio[SPOOL_RIGHT_SPEED] = c.getfloat(CURRENT, SPOOL_RIGHT_SPEED)
         except:
             self.meter_config_volumio[SPOOL_RIGHT_SPEED] = 1.0
+
+        # Scrolling settings (global)
+        try:
+            self.meter_config_volumio["scrolling.mode"] = c.get(CURRENT, "scrolling.mode")
+        except:
+            self.meter_config_volumio["scrolling.mode"] = "skin"
+        try:
+            self.meter_config_volumio["scrolling.speed.artist"] = c.getint(CURRENT, "scrolling.speed.artist")
+        except:
+            self.meter_config_volumio["scrolling.speed.artist"] = 40
+        try:
+            self.meter_config_volumio["scrolling.speed.title"] = c.getint(CURRENT, "scrolling.speed.title")
+        except:
+            self.meter_config_volumio["scrolling.speed.title"] = 40
+        try:
+            self.meter_config_volumio["scrolling.speed.album"] = c.getint(CURRENT, "scrolling.speed.album")
+        except:
+            self.meter_config_volumio["scrolling.speed.album"] = 40
 
         try:
             self.meter_config_volumio[FONT_PATH] = c.get(CURRENT, FONT_PATH)
@@ -360,7 +382,25 @@ class Volumio_ConfigFileParser(object):
         try:
             d[PLAY_MAX] = config_file.getint(section, PLAY_MAX)
         except:
-            d[PLAY_MAX] = None			
+            d[PLAY_MAX] = None
+        try:
+            d[SCROLLING_SPEED] = config_file.getint(section, SCROLLING_SPEED)
+        except:
+            d[SCROLLING_SPEED] = 40  # default pixels per second
+        # Per-field scrolling speeds (fallback to global, then default)
+        global_speed = d[SCROLLING_SPEED]
+        try:
+            d[SCROLLING_SPEED_ARTIST] = config_file.getint(section, SCROLLING_SPEED_ARTIST)
+        except:
+            d[SCROLLING_SPEED_ARTIST] = global_speed
+        try:
+            d[SCROLLING_SPEED_TITLE] = config_file.getint(section, SCROLLING_SPEED_TITLE)
+        except:
+            d[SCROLLING_SPEED_TITLE] = global_speed
+        try:
+            d[SCROLLING_SPEED_ALBUM] = config_file.getint(section, SCROLLING_SPEED_ALBUM)
+        except:
+            d[SCROLLING_SPEED_ALBUM] = global_speed
 
         try:
             spl = config_file.get(section, PLAY_TYPE_POS).split(',')		

@@ -376,6 +376,83 @@
                             ]
                 },
                 {
+                "id": "scrolling_conf",
+                "element": "section",
+                "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_CONF",
+                "description": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_DESC",
+                "icon": "fa-text-width",
+                "hidden": false,
+                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"saveScrollingConf"},
+                "saveButton": {
+                              "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
+                              "data": [
+                                      "scrollingMode",
+                                      "scrollingSpeedArtist",
+                                      "scrollingSpeedTitle",
+                                      "scrollingSpeedAlbum"
+                                      ]
+                              },
+                "content": [
+                            {
+                             "id": "scrollingMode",
+                             "element": "select",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_MODE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_MODE",
+                             "value": {"value": "skin", "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SKIN"},
+                             "options": [
+                                          {"value": "skin", "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SKIN"},
+                                          {"value": "default", "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_DEFAULT"},
+                                          {"value": "custom", "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_CUSTOM"}
+                                        ]
+                            },
+                            {
+                             "id": "scrollingSpeedArtist",
+                             "element": "input",
+                             "type": "number",
+                             "visibleIf": {"field": "scrollingMode", "value": "custom"},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SPEED_ARTIST_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SPEED_ARTIST",
+                             "attributes": [
+                                             {"placeholder": 40},
+                                             {"maxlength": 3},
+                                             {"min": 5},
+                                             {"max": 200}
+                                           ],
+                             "value": 40
+                            },
+                            {
+                             "id": "scrollingSpeedTitle",
+                             "element": "input",
+                             "type": "number",
+                             "visibleIf": {"field": "scrollingMode", "value": "custom"},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SPEED_TITLE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SPEED_TITLE",
+                             "attributes": [
+                                             {"placeholder": 40},
+                                             {"maxlength": 3},
+                                             {"min": 5},
+                                             {"max": 200}
+                                           ],
+                             "value": 40
+                            },
+                            {
+                             "id": "scrollingSpeedAlbum",
+                             "element": "input",
+                             "type": "number",
+                             "visibleIf": {"field": "scrollingMode", "value": "custom"},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SPEED_ALBUM_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SCROLLING_SPEED_ALBUM",
+                             "attributes": [
+                                             {"placeholder": 40},
+                                             {"maxlength": 3},
+                                             {"min": 5},
+                                             {"max": 200}
+                                           ],
+                             "value": 40
+                            }
+                            ]
+                },
+                {
                 "id": "animation_conf",
                 "element": "section",
                 "label": "TRANSLATE.PEPPY_SCREENSAVER.ANIMATION_CONF",

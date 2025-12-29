@@ -59,6 +59,7 @@ from volumio_configfileparser import (
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
     PLAY_TXT_CENTER, PLAY_CENTER, PLAY_MAX,
+    SCROLLING_SPEED, SCROLLING_SPEED_ARTIST, SCROLLING_SPEED_TITLE, SCROLLING_SPEED_ALBUM,
     PLAY_TITLE_POS, PLAY_TITLE_COLOR, PLAY_TITLE_MAX, PLAY_TITLE_STYLE,
     PLAY_ARTIST_POS, PLAY_ARTIST_COLOR, PLAY_ARTIST_MAX, PLAY_ARTIST_STYLE,
     PLAY_ALBUM_POS, PLAY_ALBUM_COLOR, PLAY_ALBUM_MAX, PLAY_ALBUM_STYLE,
@@ -1447,6 +1448,26 @@ def start_display_output(pm, callback, meter_config_volumio):
         center_flag = bool(mc_vol.get(PLAY_CENTER, mc_vol.get(PLAY_TXT_CENTER, False)))
         global_max = as_int(mc_vol.get(PLAY_MAX), 0)
         
+        # Scrolling speed logic based on mode
+        scrolling_mode = meter_config_volumio.get("scrolling.mode", "skin")
+        if scrolling_mode == "default":
+            # System default: always 40
+            scroll_speed_artist = 40
+            scroll_speed_title = 40
+            scroll_speed_album = 40
+        elif scrolling_mode == "custom":
+            # Custom: use UI-specified values
+            scroll_speed_artist = meter_config_volumio.get("scrolling.speed.artist", 40)
+            scroll_speed_title = meter_config_volumio.get("scrolling.speed.title", 40)
+            scroll_speed_album = meter_config_volumio.get("scrolling.speed.album", 40)
+        else:
+            # Skin mode: per-field from skin -> global from skin -> 40
+            scroll_speed_artist = mc_vol.get(SCROLLING_SPEED_ARTIST, 40)
+            scroll_speed_title = mc_vol.get(SCROLLING_SPEED_TITLE, 40)
+            scroll_speed_album = mc_vol.get(SCROLLING_SPEED_ALBUM, 40)
+        
+        log_debug(f"Scrolling: mode={scrolling_mode}, artist={scroll_speed_artist}, title={scroll_speed_title}, album={scroll_speed_album}")
+        
         artist_pos = mc_vol.get(PLAY_ARTIST_POS)
         title_pos = mc_vol.get(PLAY_TITLE_POS)
         album_pos = mc_vol.get(PLAY_ALBUM_POS)
@@ -1642,10 +1663,10 @@ def start_display_output(pm, callback, meter_config_volumio):
             if backing_rect:
                 capture_rect("reel_right", (backing_rect.x, backing_rect.y), backing_rect.width, backing_rect.height)
         
-        # Create scrollers
-        artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, center=center_flag) if artist_pos else None
-        title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=center_flag) if title_pos else None
-        album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, center=center_flag) if album_pos else None
+        # Create scrollers with per-field speeds
+        artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, center=center_flag, speed_px_per_sec=scroll_speed_artist) if artist_pos else None
+        title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=center_flag, speed_px_per_sec=scroll_speed_title) if title_pos else None
+        album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, center=center_flag, speed_px_per_sec=scroll_speed_album) if album_pos else None
         
         # Capture backing for scrollers (after static assets drawn)
         if artist_scroller:

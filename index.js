@@ -584,30 +584,53 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 }
             }
             
-            // section 3 - Animation settings -----------------------------
+            // section 3 - Scrolling settings -----------------------------
+            // scrolling mode
+            var scrollingMode = peppy_config.current['scrolling.mode'] || 'skin';
+            var scrollingOptions = uiconf.sections[3].content[0].options;
+            for (var i = 0; i < scrollingOptions.length; i++) {
+                if (scrollingOptions[i].value === scrollingMode) {
+                    uiconf.sections[3].content[0].value = scrollingOptions[i];
+                    break;
+                }
+            }
+            
+            // scrolling speed artist
+            var scrollSpeedArtist = parseInt(peppy_config.current['scrolling.speed.artist'], 10) || 40;
+            uiconf.sections[3].content[1].value = scrollSpeedArtist;
+            
+            // scrolling speed title
+            var scrollSpeedTitle = parseInt(peppy_config.current['scrolling.speed.title'], 10) || 40;
+            uiconf.sections[3].content[2].value = scrollSpeedTitle;
+            
+            // scrolling speed album
+            var scrollSpeedAlbum = parseInt(peppy_config.current['scrolling.speed.album'], 10) || 40;
+            uiconf.sections[3].content[3].value = scrollSpeedAlbum;
+            
+            // section 4 - Animation settings -----------------------------
             // transition type
             var transitionType = peppy_config.current['transition.type'] || 'fade';
-            var transitionOptions = uiconf.sections[3].content[0].options;
+            var transitionOptions = uiconf.sections[4].content[0].options;
             for (var i = 0; i < transitionOptions.length; i++) {
                 if (transitionOptions[i].value === transitionType) {
-                    uiconf.sections[3].content[0].value = transitionOptions[i];
+                    uiconf.sections[4].content[0].value = transitionOptions[i];
                     break;
                 }
             }
             
             // transition duration
             var transitionDuration = parseFloat(peppy_config.current['transition.duration']) || 0.5;
-            uiconf.sections[3].content[1].value = transitionDuration;
-            minmax[8] = [uiconf.sections[3].content[1].attributes[2].min,
-                uiconf.sections[3].content[1].attributes[3].max,
-                uiconf.sections[3].content[1].attributes[0].placeholder];
+            uiconf.sections[4].content[1].value = transitionDuration;
+            minmax[8] = [uiconf.sections[4].content[1].attributes[2].min,
+                uiconf.sections[4].content[1].attributes[3].max,
+                uiconf.sections[4].content[1].attributes[0].placeholder];
             
             // transition color
             var transitionColor = peppy_config.current['transition.color'] || 'black';
-            var colorOptions = uiconf.sections[3].content[2].options;
+            var colorOptions = uiconf.sections[4].content[2].options;
             for (var i = 0; i < colorOptions.length; i++) {
                 if (colorOptions[i].value === transitionColor) {
-                    uiconf.sections[3].content[2].value = colorOptions[i];
+                    uiconf.sections[4].content[2].value = colorOptions[i];
                     break;
                 }
             }
@@ -615,56 +638,56 @@ peppyScreensaver.prototype.getUIConfig = function() {
             // transition opacity
             var transitionOpacity = parseInt(peppy_config.current['transition.opacity'], 10);
             if (isNaN(transitionOpacity)) transitionOpacity = 100;
-            uiconf.sections[3].content[3].value = transitionOpacity;
-            minmax[9] = [uiconf.sections[3].content[3].attributes[2].min,
-                uiconf.sections[3].content[3].attributes[3].max,
-                uiconf.sections[3].content[3].attributes[0].placeholder];
+            uiconf.sections[4].content[3].value = transitionOpacity;
+            minmax[9] = [uiconf.sections[4].content[3].attributes[2].min,
+                uiconf.sections[4].content[3].attributes[3].max,
+                uiconf.sections[4].content[3].attributes[0].placeholder];
             
-            // section 4 - Rotation settings -----------------------------
+            // section 5 - Rotation settings -----------------------------
             // rotation quality
             var rotationQuality = peppy_config.current['rotation.quality'] || 'medium';
-            var qualityOptions = uiconf.sections[4].content[0].options;
+            var qualityOptions = uiconf.sections[5].content[0].options;
             for (var i = 0; i < qualityOptions.length; i++) {
                 if (qualityOptions[i].value === rotationQuality) {
-                    uiconf.sections[4].content[0].value = qualityOptions[i];
+                    uiconf.sections[5].content[0].value = qualityOptions[i];
                     break;
                 }
             }
             
             // rotation FPS (custom)
             var rotationFPS = parseInt(peppy_config.current['rotation.fps'], 10) || 8;
-            uiconf.sections[4].content[1].value = rotationFPS;
-            minmax[10] = [uiconf.sections[4].content[1].attributes[2].min,
-                uiconf.sections[4].content[1].attributes[3].max,
-                uiconf.sections[4].content[1].attributes[0].placeholder];
+            uiconf.sections[5].content[1].value = rotationFPS;
+            minmax[10] = [uiconf.sections[5].content[1].attributes[2].min,
+                uiconf.sections[5].content[1].attributes[3].max,
+                uiconf.sections[5].content[1].attributes[0].placeholder];
             
             // rotation speed (vinyl multiplier)
             var rotationSpeed = parseFloat(peppy_config.current['rotation.speed']) || 1.0;
-            uiconf.sections[4].content[2].value = rotationSpeed;
-            minmax[11] = [uiconf.sections[4].content[2].attributes[2].min,
-                uiconf.sections[4].content[2].attributes[3].max,
-                uiconf.sections[4].content[2].attributes[0].placeholder];
+            uiconf.sections[5].content[2].value = rotationSpeed;
+            minmax[11] = [uiconf.sections[5].content[2].attributes[2].min,
+                uiconf.sections[5].content[2].attributes[3].max,
+                uiconf.sections[5].content[2].attributes[0].placeholder];
             
             // spool left speed (cassette multiplier)
             var spoolLeftSpeed = parseFloat(peppy_config.current['spool.left.speed']) || 1.0;
-            uiconf.sections[4].content[3].value = spoolLeftSpeed;
-            minmax[12] = [uiconf.sections[4].content[3].attributes[2].min,
-                uiconf.sections[4].content[3].attributes[3].max,
-                uiconf.sections[4].content[3].attributes[0].placeholder];
+            uiconf.sections[5].content[3].value = spoolLeftSpeed;
+            minmax[12] = [uiconf.sections[5].content[3].attributes[2].min,
+                uiconf.sections[5].content[3].attributes[3].max,
+                uiconf.sections[5].content[3].attributes[0].placeholder];
             
             // spool right speed (cassette multiplier)
             var spoolRightSpeed = parseFloat(peppy_config.current['spool.right.speed']) || 1.0;
-            uiconf.sections[4].content[4].value = spoolRightSpeed;
-            minmax[13] = [uiconf.sections[4].content[4].attributes[2].min,
-                uiconf.sections[4].content[4].attributes[3].max,
-                uiconf.sections[4].content[4].attributes[0].placeholder];
+            uiconf.sections[5].content[4].value = spoolRightSpeed;
+            minmax[13] = [uiconf.sections[5].content[4].attributes[2].min,
+                uiconf.sections[5].content[4].attributes[3].max,
+                uiconf.sections[5].content[4].attributes[0].placeholder];
             
             // reel direction
             var reelDirection = peppy_config.current['reel.direction'] || 'ccw';
-            var directionOptions = uiconf.sections[4].content[5].options;
+            var directionOptions = uiconf.sections[5].content[5].options;
             for (var i = 0; i < directionOptions.length; i++) {
                 if (directionOptions[i].value === reelDirection) {
-                    uiconf.sections[4].content[5].value = directionOptions[i];
+                    uiconf.sections[5].content[5].value = directionOptions[i];
                     break;
                 }
             }
@@ -1054,6 +1077,63 @@ peppyScreensaver.prototype.savePerformanceConf = function (confData) {
     }
   }, 500);
 }; // end savePerformanceConf -------------------------------------
+
+// Scrolling settings save handler
+//-------------------------------------------------------------
+peppyScreensaver.prototype.saveScrollingConf = function (confData) {
+  const self = this;
+  let noChanges = true;
+  uiNeedsUpdate = false;
+  
+  if (fs.existsSync(PeppyConf)){
+    
+    // write scrolling mode
+    var scrollingMode = confData.scrollingMode.value || 'skin';
+    if (peppy_config.current['scrolling.mode'] != scrollingMode) {
+        peppy_config.current['scrolling.mode'] = scrollingMode;
+        noChanges = false;
+    }
+    
+    // write scrolling speed artist
+    var scrollSpeedArtist = parseInt(confData.scrollingSpeedArtist, 10) || 40;
+    if (peppy_config.current['scrolling.speed.artist'] != scrollSpeedArtist) {
+        peppy_config.current['scrolling.speed.artist'] = scrollSpeedArtist;
+        noChanges = false;
+    }
+    
+    // write scrolling speed title
+    var scrollSpeedTitle = parseInt(confData.scrollingSpeedTitle, 10) || 40;
+    if (peppy_config.current['scrolling.speed.title'] != scrollSpeedTitle) {
+        peppy_config.current['scrolling.speed.title'] = scrollSpeedTitle;
+        noChanges = false;
+    }
+    
+    // write scrolling speed album
+    var scrollSpeedAlbum = parseInt(confData.scrollingSpeedAlbum, 10) || 40;
+    if (peppy_config.current['scrolling.speed.album'] != scrollSpeedAlbum) {
+        peppy_config.current['scrolling.speed.album'] = scrollSpeedAlbum;
+        noChanges = false;
+    }
+    
+    // save config file and restart meter if changes were made
+    if (!noChanges) {
+        fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, {whitespace: true}));
+        // Restart meter to apply new scrolling settings
+        if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
+    }
+  } else {
+      self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));
+  }
+  
+  if (uiNeedsUpdate) {self.updateUIConfig();}
+  setTimeout(function () {
+    if (noChanges) {
+        self.commandRouter.pushToastMessage('info', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+    } else {
+        self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+    }
+  }, 500);
+}; // end saveScrollingConf -------------------------------------
 
 // Animation settings save handler
 //-------------------------------------------------------------

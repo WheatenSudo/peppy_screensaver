@@ -111,6 +111,19 @@
     "REEL_DIRECTION":"Sens de rotation des bobines",
     "REEL_DIRECTION_DOC":"Sens de rotation des bobines de cassette.<br /><br /><b>Sens anti-horaire:</b> Sens standard (par défaut)<br /><b>Sens horaire:</b> Sens inverse",
     "REEL_CCW":"Sens anti-horaire",
-    "REEL_CW":"Sens horaire"
+    "REEL_CW":"Sens horaire",
+    "SCROLLING_CONF":"Paramètres de défilement",
+    "SCROLLING_DESC":"Vitesse de défilement du texte pour artiste, titre et album",
+    "SCROLLING_MODE":"Mode de défilement",
+    "SCROLLING_MODE_DOC":"Comment déterminer la vitesse de défilement du texte.<br /><br /><b>Utiliser valeur skin:</b> Utiliser la vitesse définie dans le skin (ou 40 si non définie)<br /><b>Défaut système:</b> Toujours 40 pixels/sec<br /><b>Personnalisé:</b> Définir des vitesses individuelles pour chaque champ",
+    "SCROLLING_SKIN":"Utiliser valeur skin",
+    "SCROLLING_DEFAULT":"Défaut système (40)",
+    "SCROLLING_CUSTOM":"Personnalisé",
+    "SCROLLING_SPEED_ARTIST":"Vitesse défilement artiste",
+    "SCROLLING_SPEED_ARTIST_DOC":"Vitesse de défilement du texte artiste en pixels par seconde.<br /><br /><b>Défaut: 40</b><br /><br />Valeurs basses = défilement plus lent. Plage: 5-200",
+    "SCROLLING_SPEED_TITLE":"Vitesse défilement titre",
+    "SCROLLING_SPEED_TITLE_DOC":"Vitesse de défilement du texte titre en pixels par seconde.<br /><br /><b>Défaut: 40</b><br /><br />Valeurs basses = défilement plus lent. Plage: 5-200",
+    "SCROLLING_SPEED_ALBUM":"Vitesse défilement album",
+    "SCROLLING_SPEED_ALBUM_DOC":"Vitesse de défilement du texte album en pixels par seconde.<br /><br /><b>Défaut: 40</b><br /><br />Valeurs basses = défilement plus lent. Plage: 5-200"
   }
 }

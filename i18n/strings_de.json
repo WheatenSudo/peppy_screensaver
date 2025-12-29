@@ -111,6 +111,19 @@
     "REEL_DIRECTION":"Spulen-Drehrichtung",
     "REEL_DIRECTION_DOC":"Drehrichtung für Kassettenspulen.<br /><br /><b>Gegen den Uhrzeigersinn:</b> Standardrichtung (Standard)<br /><b>Im Uhrzeigersinn:</b> Umgekehrte Richtung",
     "REEL_CCW":"Gegen den Uhrzeigersinn",
-    "REEL_CW":"Im Uhrzeigersinn"
+    "REEL_CW":"Im Uhrzeigersinn",
+    "SCROLLING_CONF":"Scroll-Einstellungen",
+    "SCROLLING_DESC":"Textlaufgeschwindigkeit für Künstler, Titel und Album",
+    "SCROLLING_MODE":"Scroll-Modus",
+    "SCROLLING_MODE_DOC":"Wie die Textlaufgeschwindigkeit bestimmt wird.<br /><br /><b>Skin-Wert verwenden:</b> Geschwindigkeit aus Skin verwenden (oder 40 wenn nicht definiert)<br /><b>Systemstandard:</b> Immer 40 Pixel/Sek.<br /><b>Benutzerdefiniert:</b> Individuelle Geschwindigkeiten für jedes Feld",
+    "SCROLLING_SKIN":"Skin-Wert verwenden",
+    "SCROLLING_DEFAULT":"Systemstandard (40)",
+    "SCROLLING_CUSTOM":"Benutzerdefiniert",
+    "SCROLLING_SPEED_ARTIST":"Künstler-Scrollgeschwindigkeit",
+    "SCROLLING_SPEED_ARTIST_DOC":"Scrollgeschwindigkeit für Künstlertext in Pixel pro Sekunde.<br /><br /><b>Standard: 40</b><br /><br />Niedrigere Werte = langsameres Scrollen. Bereich: 5-200",
+    "SCROLLING_SPEED_TITLE":"Titel-Scrollgeschwindigkeit",
+    "SCROLLING_SPEED_TITLE_DOC":"Scrollgeschwindigkeit für Titeltext in Pixel pro Sekunde.<br /><br /><b>Standard: 40</b><br /><br />Niedrigere Werte = langsameres Scrollen. Bereich: 5-200",
+    "SCROLLING_SPEED_ALBUM":"Album-Scrollgeschwindigkeit",
+    "SCROLLING_SPEED_ALBUM_DOC":"Scrollgeschwindigkeit für Albumtext in Pixel pro Sekunde.<br /><br /><b>Standard: 40</b><br /><br />Niedrigere Werte = langsameres Scrollen. Bereich: 5-200"
   }
 }

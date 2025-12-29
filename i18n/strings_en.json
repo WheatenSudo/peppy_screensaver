@@ -111,6 +111,19 @@
     "REEL_DIRECTION":"Reel rotation direction",
     "REEL_DIRECTION_DOC":"Rotation direction for cassette spools.<br /><br /><b>Counter-clockwise:</b> Standard direction (default)<br /><b>Clockwise:</b> Reverse direction",
     "REEL_CCW":"Counter-clockwise",
-    "REEL_CW":"Clockwise"
+    "REEL_CW":"Clockwise",
+    "SCROLLING_CONF":"Scrolling settings",
+    "SCROLLING_DESC":"Text scrolling speed for artist, title, and album display",
+    "SCROLLING_MODE":"Scrolling mode",
+    "SCROLLING_MODE_DOC":"How to determine text scrolling speed.<br /><br /><b>Use skin value:</b> Use speed defined in skin (or 40 if not set)<br /><b>System default:</b> Always use 40 pixels/sec<br /><b>Custom:</b> Set individual speeds for each field",
+    "SCROLLING_SKIN":"Use skin value",
+    "SCROLLING_DEFAULT":"System default (40)",
+    "SCROLLING_CUSTOM":"Custom",
+    "SCROLLING_SPEED_ARTIST":"Artist scrolling speed",
+    "SCROLLING_SPEED_ARTIST_DOC":"Scrolling speed for artist text in pixels per second.<br /><br /><b>Default: 40</b><br /><br />Lower values = slower scrolling. Range: 5-200",
+    "SCROLLING_SPEED_TITLE":"Title scrolling speed",
+    "SCROLLING_SPEED_TITLE_DOC":"Scrolling speed for title text in pixels per second.<br /><br /><b>Default: 40</b><br /><br />Lower values = slower scrolling. Range: 5-200",
+    "SCROLLING_SPEED_ALBUM":"Album scrolling speed",
+    "SCROLLING_SPEED_ALBUM_DOC":"Scrolling speed for album text in pixels per second.<br /><br /><b>Default: 40</b><br /><br />Lower values = slower scrolling. Range: 5-200"
   }
 }
