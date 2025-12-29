@@ -67,16 +67,81 @@ After installation, enable and configure the plugin:
 - Random meter rotation
 - Touch to exit
 - Configurable frame rate and update interval for CPU tuning
+- Meter window positioning (centered or manual coordinates)
+- Configurable text scrolling speeds
 
-## Performance Settings
+## Plugin Settings
 
-The plugin includes configurable performance settings to balance visual quality against CPU usage.
-Access via Settings > Plugins > PeppyMeter Screensaver > Settings > Performance Settings.
+The plugin settings are organized into sections:
+
+### Global Settings
+
+| Setting | Description |
+|---------|-------------|
+| ALSA Device | Audio input source for visualization |
+| DSP | Enable DSP processing |
+| Use Spotify | Include Spotify playback |
+| Use USB DAC | Include USB DAC playback |
+| Use Airplay | Include Airplay playback |
+| Timeout | Idle timeout before screensaver activates |
+| Meter | Select active meter skin |
+| Meter Position | Window position: centered or manual coordinates |
+| Position X/Y | Manual position coordinates (when not centered) |
+| Start/Stop Animation | Enable fade animation on start/stop |
+| Smooth Buffer | Audio smoothing buffer size |
+| Needle Cache | Cache rotated needle images (reduces CPU, uses more RAM) |
+
+### Performance Settings
+
+Frame rate, update intervals, and debug logging.
 
 | Setting | Range | Default | Description |
 |---------|-------|---------|-------------|
-| Frame rate | 10-60 | 30 | Display refresh rate (FPS). Lower = less CPU |
-| Update interval | 1-10 | 2 | Spectrum/needle updates per N frames. Higher = less CPU |
+| Frame Rate | 10-60 | 30 | Display refresh rate (FPS). Lower = less CPU |
+| Update Interval | 1-10 | 2 | Spectrum/needle updates per N frames. Higher = less CPU |
+| Debug Logging | Off/Basic/Verbose | Off | Enable logging to /tmp/peppy_debug.log |
+
+### Scrolling Settings
+
+Text scrolling speed for artist, title, and album display.
+
+| Setting | Description |
+|---------|-------------|
+| Scrolling Mode | Use skin value / System default (40) / Custom |
+| Artist Scrolling Speed | Custom speed for artist text (5-200 pixels/sec) |
+| Title Scrolling Speed | Custom speed for title text (5-200 pixels/sec) |
+| Album Scrolling Speed | Custom speed for album text (5-200 pixels/sec) |
+
+Scrolling modes:
+- **Use skin value**: Reads speed from skin configuration, falls back to 40 if not set
+- **System default**: Always uses 40 pixels/second
+- **Custom**: Uses the individual speed values specified below
+
+### Animation Settings
+
+Fade transitions between meters and playback states.
+
+| Setting | Range | Default | Description |
+|---------|-------|---------|-------------|
+| Transition Effect | None/Fade | Fade | Visual transition type |
+| Transition Duration | 0.1-5.0 | 0.5 | Fade duration in seconds |
+| Transition Color | Black/White | Black | Fade overlay color |
+| Transition Opacity | 0-100 | 100 | Fade overlay opacity percentage |
+
+### Rotation Settings
+
+Album art and cassette spool rotation speed and quality.
+
+| Setting | Range | Default | Description |
+|---------|-------|---------|-------------|
+| Rotation Quality | Low/Medium/High/Custom | Medium | Rotation smoothness vs CPU usage |
+| Rotation FPS | 4-30 | 8 | Custom rotation update rate |
+| Vinyl Rotation Speed | 0.1-5.0 | 1.0 | Album art rotation multiplier |
+| Left Spool Speed | 0.1-5.0 | 1.0 | Left cassette reel multiplier |
+| Right Spool Speed | 0.1-5.0 | 1.0 | Right cassette reel multiplier |
+| Reel Rotation Direction | CCW/CW | CCW | Cassette reel rotation direction |
+
+## Performance Tuning
 
 ### Tuning Guide
 
@@ -97,18 +162,66 @@ Access via Settings > Plugins > PeppyMeter Screensaver > Settings > Performance 
 
 ### Optimization Details
 
-v3.0.7 includes several CPU optimizations:
+v3.0.7+ includes several CPU optimizations:
 
 - **Dirty rectangle rendering**: Spectrum analyzer only redraws bars that changed
 - **Skip-if-unchanged**: Needle animation skips frames when volume is static
 - **Configurable throttling**: UI-adjustable frame rate and update intervals
 
-These optimizations reduce CPU usage by 30-50% compared to v3.0.5.
+These optimizations reduce CPU usage by 30-50% compared to earlier versions.
+
+### Expected CPU Usage
+
+At default settings (30 FPS, update interval 2):
+
+| Resolution | Pi 5 | Pi 4 | Pi 3B | x64 |
+|------------|------|------|-------|-----|
+| 800x480 | 8-12% | 12-18% | 20-30% | 1-2% |
+| 1024x600 | 12-18% | 18-25% | 30-40% | 1-2% |
+| 1280x720 | 20-30% | 30-40% | Not recommended | 1-2% |
+| 1920x1080 | 30-40% | 40-55% | Not recommended | 2-3% |
+
+CPU usage can be reduced further by lowering frame rate and increasing update interval.
+
+### NEON Optimization (ARM)
+
+The bundled pygame package for ARM (armv7/armv8) is built with NEON SIMD
+optimization enabled, providing significantly better performance on Pi 3/4/5.
+
+To verify NEON is enabled:
+```bash
+PYTHONPATH=/data/plugins/user_interface/peppy_screensaver/lib/arm/python \
+  python3 -c "import pygame; pygame.init()"
+```
+
+If you see "neon capable but pygame was not built with support" warning,
+the package needs to be rebuilt with NEON support. See Build Information below.
 
 ## Skin Configuration
 
 Skins are configured via `meters.txt` in the meter folder. Extended features
 require `config.extend = True` in the meter section.
+
+### Text Scrolling Speed
+
+Control how fast text scrolls when it exceeds the display area:
+
+```ini
+# Global scrolling speed (applies to all text fields)
+playinfo.scrolling.speed = 20
+
+# Per-field scrolling speeds (override global)
+playinfo.scrolling.speed.artist = 15
+playinfo.scrolling.speed.title = 25
+playinfo.scrolling.speed.album = 20
+```
+
+Values are in pixels per second. Lower = slower scrolling. Default is 40.
+
+Priority when using "Use skin value" mode:
+1. Per-field speed (e.g., `playinfo.scrolling.speed.title`)
+2. Global speed (`playinfo.scrolling.speed`)
+3. Default (40)
 
 ### Cassette Reel Animation
 
@@ -149,6 +262,8 @@ reel.rotation.speed = 1.5
 The reel graphics should be PNG files with transparency. The center point
 defines the rotation axis and should be the visual center of the reel hub.
 
+Reel rotation direction is controlled via plugin settings (Rotation Settings > Reel Rotation Direction).
+
 ### Album Art Rotation
 
 Album art can rotate like a vinyl record during playback:
@@ -156,51 +271,28 @@ Album art can rotate like a vinyl record during playback:
 ```ini
 albumart.pos = 500,100
 albumart.dimension = 200,200
-albumart.rotate = True
-albumart.rotate.speed = 33.3
+albumart.rotation = True
+albumart.rotation.speed = 8
 ```
-
-## Performance
-
-Expected CPU usage at default settings (30 FPS, update interval 2):
-
-| Resolution | Pi 5 | Pi 4 | Pi 3B | x64 |
-|------------|------|------|-------|-----|
-| 800x480 | 8-12% | 12-18% | 20-30% | 1-2% |
-| 1024x600 | 12-18% | 18-25% | 30-40% | 1-2% |
-| 1280x720 | 20-30% | 30-40% | Not recommended | 1-2% |
-| 1920x1080 | 30-40% | 40-55% | Not recommended | 2-3% |
-
-CPU usage can be reduced further by lowering frame rate and increasing update interval
-in Performance Settings.
-
-### NEON Optimization (ARM)
-
-The bundled pygame package for ARM (armv7/armv8) is built with NEON SIMD
-optimization enabled, providing significantly better performance on Pi 3/4/5.
-
-To verify NEON is enabled:
-```bash
-PYTHONPATH=/data/plugins/user_interface/peppy_screensaver/lib/arm/python \
-  python3 -c "import pygame; pygame.init()"
-```
-
-If you see "neon capable but pygame was not built with support" warning,
-the package needs to be rebuilt with NEON support. See Build Information below.
 
 ## Troubleshooting
 
 ### Debug Logging
 
-For diagnosing display issues (white backgrounds, missing graphics, etc.), enable debug logging:
+Enable debug logging via plugin settings:
 
-1. Edit `/data/plugins/user_interface/peppy_screensaver/screensaver/volumio_peppymeter.py`
-2. Find `DEBUG_LOG = False` near the top (around line 73)
-3. Change to `DEBUG_LOG = True`
-4. Restart the plugin
+1. Settings > Plugins > PeppyMeter Screensaver > Settings
+2. Performance Settings > Debug Logging
+3. Select "Basic" or "Verbose"
+4. Apply settings
 5. Check `/tmp/peppy_debug.log` for diagnostic output
 
-**Warning:** Disable after troubleshooting - the log file can fill /tmp (volatile RAM disk) and crash the player on extended use.
+Log levels:
+- **Off**: No logging (recommended for normal use)
+- **Basic**: Essential events and errors
+- **Verbose**: Detailed information for troubleshooting
+
+**Note:** Disable after troubleshooting - the log file can fill /tmp (volatile RAM disk).
 
 ### Configuration Diagnostic
 
@@ -283,7 +375,7 @@ peppy_screensaver/
 Pre-built binaries included for all supported architectures. No compilation required on target system.
 
 - peppyalsa: Native ALSA scope plugin for audio data capture
-- Python packages: pygame 2.5.2 (NEON-optimized), python-socketio 5.x, Pillow, etc.
+- Python packages: pygame 2.5.2 (NEON-optimized), python-socketio 5.x, Pillow, pyscreenshot, etc.
 
 ### ARM Python Packages (NEON Build)
 
