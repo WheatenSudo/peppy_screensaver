@@ -1549,7 +1549,8 @@ peppyScreensaver.prototype.get_SDL2_enabled = function (data) {
         self.logger.warn(id + 'An error occurred on pygame check', error);
         defer.resolve(false);
     } else {
-        if (stdout.trim().startsWith('2.')) {
+        // Check for pygame 2.x anywhere in output (welcome message precedes version)
+        if (stdout.includes('pygame 2.') || stdout.match(/^2\./m)) {
             defer.resolve(true);
         } else {
             defer.resolve(false);

@@ -26,6 +26,16 @@ import requests
 import pygame as pg
 import socketio
 
+# SDL2 window positioning support (pygame 2.x with SDL2)
+use_sdl2 = False
+if pg.version.ver.startswith("2"):
+    try:
+        from pygame._sdl2 import Window
+        import pyscreenshot
+        use_sdl2 = True
+    except ImportError:
+        pass
+
 from pathlib import Path
 from threading import Thread
 from pygame.time import Clock
@@ -124,9 +134,6 @@ def log_debug(msg, level="basic"):
 PeppyRunning = '/tmp/peppyrunning'
 CurDir = os.getcwd()
 PeppyPath = CurDir + '/screensaver/peppymeter'
-
-# SDL2 disabled for Volumio 4 compatibility
-use_sdl2 = False
 
 
 # =============================================================================
@@ -1172,8 +1179,15 @@ def trim_memory():
 # =============================================================================
 # Display Initialization
 # =============================================================================
-def init_display(pm, meter_config_volumio, screen_w, screen_h):
-    """Initialize pygame display."""
+def init_display(pm, meter_config_volumio, screen_w, screen_h, hide=False):
+    """Initialize pygame display.
+    
+    :param pm: Peppymeter instance
+    :param meter_config_volumio: Volumio meter configuration
+    :param screen_w: Screen width
+    :param screen_h: Screen height
+    :param hide: If True, create hidden window (for SDL2 positioning)
+    """
     depth = meter_config_volumio[COLOR_DEPTH]
     pm.util.meter_config[SCREEN_INFO][DEPTH] = depth
     
@@ -1196,6 +1210,8 @@ def init_display(pm, meter_config_volumio, screen_w, screen_h):
     flags = pg.NOFRAME
     if pm.util.meter_config[SDL_ENV][DOUBLE_BUFFER]:
         flags |= pg.DOUBLEBUF
+    if hide and use_sdl2:
+        flags |= pg.HIDDEN
     
     screen = pg.display.set_mode((screen_w, screen_h), flags, depth)
     pm.util.meter_config[SCREEN_RECT] = pg.Rect(0, 0, screen_w, screen_h)
@@ -2140,9 +2156,44 @@ if __name__ == "__main__":
         watcher = Thread(target=stop_watcher, daemon=True)
         watcher.start()
         
-        # Initialize display
-        pm.util.PYGAME_SCREEN = init_display(pm, meter_config_volumio, screen_w, screen_h)
-        pm.util.screen_copy = pm.util.PYGAME_SCREEN
+        # Initialize display with SDL2 positioning support
+        if use_sdl2:
+            # Grab screenshot to get full display dimensions
+            try:
+                screenshot_img = pyscreenshot.grab()
+                display_w = screenshot_img.size[0]
+                display_h = screenshot_img.size[1]
+            except Exception as e:
+                log_debug(f"pyscreenshot failed: {e}, using meter size")
+                display_w = screen_w
+                display_h = screen_h
+            
+            # Calculate position
+            if meter_config_volumio.get(POSITION_TYPE) == "center":
+                screen_x = int((display_w - screen_w) / 2)
+                screen_y = int((display_h - screen_h) / 2)
+            else:
+                screen_x = meter_config_volumio.get(POS_X, 0)
+                screen_y = meter_config_volumio.get(POS_Y, 0)
+            
+            log_debug(f"SDL2 positioning: display={display_w}x{display_h}, meter={screen_w}x{screen_h}, pos=({screen_x},{screen_y})")
+            
+            # Initialize hidden display
+            pm.util.PYGAME_SCREEN = init_display(pm, meter_config_volumio, screen_w, screen_h, hide=True)
+            pm.util.screen_copy = pm.util.PYGAME_SCREEN
+            
+            # Position and show window
+            try:
+                win = Window.from_display_module()
+                win.position = (screen_x, screen_y)
+                Window.show(win)
+                log_debug("SDL2 window positioned and shown")
+            except Exception as e:
+                log_debug(f"Window positioning failed: {e}")
+        else:
+            # Non-SDL2 fallback
+            pm.util.PYGAME_SCREEN = init_display(pm, meter_config_volumio, screen_w, screen_h)
+            pm.util.screen_copy = pm.util.PYGAME_SCREEN
         
         # Run main display loop
         start_display_output(pm, callback, meter_config_volumio)
