@@ -1501,20 +1501,24 @@ def start_display_output(pm, callback, meter_config_volumio):
         # Capture backing surfaces
         backing = []
         backing_dict = {}  # OPTIMIZATION: Dict for quick lookup
+        screen_rect = screen.get_rect()  # Screen bounds for clipping
         
         def capture_rect(name, pos, width, height):
             if pos and width and height:
                 r = pg.Rect(pos[0], pos[1], int(width), int(height))
-                try:
-                    surf = screen.subsurface(r).copy()
-                    backing.append((r, surf))
-                    backing_dict[name] = (r, surf)
-                except Exception:
-                    # Fallback: create black surface (not undefined .convert() content)
-                    s = pg.Surface((r.width, r.height))
-                    s.fill((0, 0, 0))
-                    backing.append((r, s))
-                    backing_dict[name] = (r, s)
+                # Clip to screen bounds to avoid subsurface failure
+                clipped = r.clip(screen_rect)
+                if clipped.width > 0 and clipped.height > 0:
+                    try:
+                        surf = screen.subsurface(clipped).copy()
+                        backing.append((clipped, surf))
+                        backing_dict[name] = (clipped, surf)
+                    except Exception:
+                        # Fallback: create black surface
+                        s = pg.Surface((clipped.width, clipped.height))
+                        s.fill((0, 0, 0))
+                        backing.append((clipped, s))
+                        backing_dict[name] = (clipped, s)
         
         if artist_pos:
             capture_rect("artist", artist_pos, artist_box, artist_font.get_linesize())
@@ -1972,30 +1976,28 @@ def start_display_output(pm, callback, meter_config_volumio):
             reel_left = ov.get("reel_left_renderer")
             reel_right = ov.get("reel_right_renderer")
             is_playing = status == "play"
+            bd = ov.get("backing_dict", {})
             
-            if reel_left:
-                # Only animate reels during playback, check FPS gating
-                if is_playing and reel_left.will_blit(now_ticks):
-                    # Restore backing ONLY when we're about to blit
-                    bd = ov.get("backing_dict", {})
-                    if "reel_left" in bd:
-                        r, b = bd["reel_left"]
-                        screen.blit(b, r.topleft)
-                    rect = reel_left.render(screen, status, now_ticks)
-                    if rect:
-                        dirty_rects.append(rect)
+            # Restore BOTH backings first to avoid overlap clobbering
+            left_will_blit = reel_left and is_playing and reel_left.will_blit(now_ticks)
+            right_will_blit = reel_right and is_playing and reel_right.will_blit(now_ticks)
             
-            if reel_right:
-                # Only animate reels during playback, check FPS gating
-                if is_playing and reel_right.will_blit(now_ticks):
-                    # Restore backing ONLY when we're about to blit
-                    bd = ov.get("backing_dict", {})
-                    if "reel_right" in bd:
-                        r, b = bd["reel_right"]
-                        screen.blit(b, r.topleft)
-                    rect = reel_right.render(screen, status, now_ticks)
-                    if rect:
-                        dirty_rects.append(rect)
+            if left_will_blit and "reel_left" in bd:
+                r, b = bd["reel_left"]
+                screen.blit(b, r.topleft)
+            if right_will_blit and "reel_right" in bd:
+                r, b = bd["reel_right"]
+                screen.blit(b, r.topleft)
+            
+            # Now render both reels
+            if left_will_blit:
+                rect = reel_left.render(screen, status, now_ticks)
+                if rect:
+                    dirty_rects.append(rect)
+            if right_will_blit:
+                rect = reel_right.render(screen, status, now_ticks)
+                if rect:
+                    dirty_rects.append(rect)
             
             # Album art (round + optional rotating) - draw LAST to sit on top
             album_renderer = ov.get("album_renderer")
