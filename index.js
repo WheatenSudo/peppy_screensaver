@@ -659,6 +659,16 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 uiconf.sections[4].content[4].attributes[3].max,
                 uiconf.sections[4].content[4].attributes[0].placeholder];
             
+            // reel direction
+            var reelDirection = peppy_config.current['reel.direction'] || 'ccw';
+            var directionOptions = uiconf.sections[4].content[5].options;
+            for (var i = 0; i < directionOptions.length; i++) {
+                if (directionOptions[i].value === reelDirection) {
+                    uiconf.sections[4].content[5].value = directionOptions[i];
+                    break;
+                }
+            }
+            
         } else {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));            
         }
@@ -1128,6 +1138,13 @@ peppyScreensaver.prototype.saveRotationConf = function (confData) {
     var rotationQuality = confData.rotationQuality.value || 'medium';
     if (peppy_config.current['rotation.quality'] != rotationQuality) {
         peppy_config.current['rotation.quality'] = rotationQuality;
+        noChanges = false;
+    }
+    
+    // write reel direction
+    var reelDirection = confData.reelDirection.value || 'ccw';
+    if (peppy_config.current['reel.direction'] != reelDirection) {
+        peppy_config.current['reel.direction'] = reelDirection;
         noChanges = false;
     }
     

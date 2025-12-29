@@ -38,6 +38,7 @@ TRANSITION_OPACITY = "transition.opacity"
 ROTATION_QUALITY = "rotation.quality"
 ROTATION_FPS = "rotation.fps"
 ROTATION_SPEED = "rotation.speed"
+REEL_DIRECTION = "reel.direction"
 SPOOL_LEFT_SPEED = "spool.left.speed"
 SPOOL_RIGHT_SPEED = "spool.right.speed"
 
@@ -177,6 +178,10 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio[ROTATION_SPEED] = c.getfloat(CURRENT, ROTATION_SPEED)
         except:
             self.meter_config_volumio[ROTATION_SPEED] = 1.0
+        try:
+            self.meter_config_volumio[REEL_DIRECTION] = c.get(CURRENT, REEL_DIRECTION)
+        except:
+            self.meter_config_volumio[REEL_DIRECTION] = "ccw"
         try:
             self.meter_config_volumio[SPOOL_LEFT_SPEED] = c.getfloat(CURRENT, SPOOL_LEFT_SPEED)
         except:

@@ -107,6 +107,10 @@
     "SPOOL_LEFT_SPEED":"Linke Spulengeschwindigkeit",
     "SPOOL_LEFT_SPEED_DOC":"Geschwindigkeitsmultiplikator für linke Kassettenspule.<br /><br /><b>1,0:</b> Normale Geschwindigkeit (Standard)<br /><br />Separat von rechter Spule für realistischen Effekt einstellbar.",
     "SPOOL_RIGHT_SPEED":"Rechte Spulengeschwindigkeit",
-    "SPOOL_RIGHT_SPEED_DOC":"Geschwindigkeitsmultiplikator für rechte Kassettenspule.<br /><br /><b>1,0:</b> Normale Geschwindigkeit (Standard)<br /><br />Separat von linker Spule für realistischen Effekt einstellbar."
+    "SPOOL_RIGHT_SPEED_DOC":"Geschwindigkeitsmultiplikator für rechte Kassettenspule.<br /><br /><b>1,0:</b> Normale Geschwindigkeit (Standard)<br /><br />Separat von linker Spule für realistischen Effekt einstellbar.",
+    "REEL_DIRECTION":"Spulen-Drehrichtung",
+    "REEL_DIRECTION_DOC":"Drehrichtung für Kassettenspulen.<br /><br /><b>Gegen den Uhrzeigersinn:</b> Standardrichtung (Standard)<br /><b>Im Uhrzeigersinn:</b> Umgekehrte Richtung",
+    "REEL_CCW":"Gegen den Uhrzeigersinn",
+    "REEL_CW":"Im Uhrzeigersinn"
   }
 }

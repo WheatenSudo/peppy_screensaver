@@ -107,6 +107,10 @@
     "SPOOL_LEFT_SPEED":"Vitesse bobine gauche",
     "SPOOL_LEFT_SPEED_DOC":"Multiplicateur de vitesse pour la bobine gauche de cassette.<br /><br /><b>1,0:</b> Vitesse normale (par défaut)<br /><br />Réglable séparément de la bobine droite pour un effet réaliste.",
     "SPOOL_RIGHT_SPEED":"Vitesse bobine droite",
-    "SPOOL_RIGHT_SPEED_DOC":"Multiplicateur de vitesse pour la bobine droite de cassette.<br /><br /><b>1,0:</b> Vitesse normale (par défaut)<br /><br />Réglable séparément de la bobine gauche pour un effet réaliste."
+    "SPOOL_RIGHT_SPEED_DOC":"Multiplicateur de vitesse pour la bobine droite de cassette.<br /><br /><b>1,0:</b> Vitesse normale (par défaut)<br /><br />Réglable séparément de la bobine gauche pour un effet réaliste.",
+    "REEL_DIRECTION":"Sens de rotation des bobines",
+    "REEL_DIRECTION_DOC":"Sens de rotation des bobines de cassette.<br /><br /><b>Sens anti-horaire:</b> Sens standard (par défaut)<br /><b>Sens horaire:</b> Sens inverse",
+    "REEL_CCW":"Sens anti-horaire",
+    "REEL_CW":"Sens horaire"
   }
 }

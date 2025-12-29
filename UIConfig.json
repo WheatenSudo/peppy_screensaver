@@ -462,7 +462,8 @@
                                       "rotationFPS",
                                       "rotationSpeed",
                                       "spoolLeftSpeed",
-                                      "spoolRightSpeed"
+                                      "spoolRightSpeed",
+                                      "reelDirection"
                                       ]
                               },
                 "content": [
@@ -538,6 +539,17 @@
                                              {"step": 0.1}
                                            ],
                              "value": 1.0
+                            },
+                            {
+                             "id": "reelDirection",
+                             "element": "select",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.REEL_DIRECTION_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.REEL_DIRECTION",
+                             "value": {"value": "ccw", "label": "TRANSLATE.PEPPY_SCREENSAVER.REEL_CCW"},
+                             "options": [
+                                          {"value": "ccw", "label": "TRANSLATE.PEPPY_SCREENSAVER.REEL_CCW"},
+                                          {"value": "cw", "label": "TRANSLATE.PEPPY_SCREENSAVER.REEL_CW"}
+                                        ]
                             }
                             ]
                 }

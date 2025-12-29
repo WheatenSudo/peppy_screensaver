@@ -44,7 +44,7 @@ from volumio_configfileparser import (
     COLOR_DEPTH, POSITION_TYPE, POS_X, POS_Y, START_ANIMATION, UPDATE_INTERVAL,
     TRANSITION_TYPE, TRANSITION_DURATION, TRANSITION_COLOR, TRANSITION_OPACITY,
     DEBUG_LEVEL, ROTATION_QUALITY, ROTATION_FPS, ROTATION_SPEED,
-    SPOOL_LEFT_SPEED, SPOOL_RIGHT_SPEED,
+    REEL_DIRECTION, SPOOL_LEFT_SPEED, SPOOL_RIGHT_SPEED,
     FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
@@ -666,7 +666,7 @@ class ReelRenderer:
 
     def __init__(self, base_path, meter_folder, filename, pos, center, 
                  rotate_rpm=1.5, angle_step_deg=1.0, rotation_fps=8, rotation_step=6,
-                 speed_multiplier=1.0):
+                 speed_multiplier=1.0, direction="ccw"):
         """
         Initialize reel renderer.
         
@@ -680,16 +680,18 @@ class ReelRenderer:
         :param rotation_fps: Target FPS for rotation updates
         :param rotation_step: Degrees per pre-computed frame
         :param speed_multiplier: Multiplier for rotation speed (from config)
+        :param direction: Rotation direction - "ccw" (counter-clockwise) or "cw" (clockwise)
         """
         self.base_path = base_path
         self.meter_folder = meter_folder
         self.filename = filename
         self.pos = pos
         self.center = center
-        self.rotate_rpm = float(rotate_rpm) * float(speed_multiplier)  # Apply speed multiplier
+        self.rotate_rpm = abs(float(rotate_rpm) * float(speed_multiplier))  # abs() - direction via UI
         self.angle_step_deg = float(angle_step_deg)
         self.rotation_fps = int(rotation_fps)
         self.rotation_step = int(rotation_step)
+        self.direction_mult = 1 if direction == "cw" else -1  # CCW = negative angle change
         
         # Runtime state
         self._original_surf = None
@@ -705,67 +707,40 @@ class ReelRenderer:
         self._load_image()
     
     def _load_image(self):
-        """Load the reel PNG file, apply circular mask, and pre-compute rotation frames."""
+        """Load the reel PNG file and pre-compute rotation frames."""
         if not self.filename:
             return
         
         try:
             img_path = os.path.join(self.base_path, self.meter_folder, self.filename)
-            if not os.path.exists(img_path):
-                print(f"[ReelRenderer] File not found: {img_path}")
-                return
-            
-            # Use PIL for circular masking if available
-            if PIL_AVAILABLE:
-                try:
-                    pil_img = Image.open(img_path).convert('RGBA')
-                    
-                    # Apply circular mask to ensure proper transparency
-                    mask = Image.new('L', pil_img.size, 0)
-                    draw = ImageDraw.Draw(mask)
-                    draw.ellipse((0, 0, pil_img.size[0], pil_img.size[1]), fill=255)
-                    pil_img.putalpha(mask)
-                    
-                    # Convert PIL image to pygame surface
-                    mode = pil_img.mode
-                    size = pil_img.size
-                    data = pil_img.tobytes()
-                    self._original_surf = pg.image.fromstring(data, size, mode).convert_alpha()
-                    self._loaded = True
-                    self._need_first_blit = True
-                except Exception as e:
-                    print(f"[ReelRenderer] PIL processing failed, falling back: {e}")
-                    self._original_surf = pg.image.load(img_path).convert_alpha()
-                    self._loaded = True
-                    self._need_first_blit = True
-            else:
-                # Fallback: load directly without circular mask
+            if os.path.exists(img_path):
                 self._original_surf = pg.image.load(img_path).convert_alpha()
                 self._loaded = True
                 self._need_first_blit = True
-            
-            # OPTIMIZATION: Pre-compute all rotation frames (CCW direction)
-            if USE_PRECOMPUTED_FRAMES and self.center and self.rotate_rpm > 0.0:
-                try:
-                    self._rot_frames = [
-                        pg.transform.rotate(self._original_surf, a)
-                        for a in range(0, 360, self.rotation_step)
-                    ]
-                except Exception:
-                    self._rot_frames = None
-                    
+                
+                # OPTIMIZATION: Pre-compute all rotation frames
+                if USE_PRECOMPUTED_FRAMES and self.center and self.rotate_rpm > 0.0:
+                    try:
+                        self._rot_frames = [
+                            pg.transform.rotate(self._original_surf, -a)
+                            for a in range(0, 360, self.rotation_step)
+                        ]
+                    except Exception:
+                        self._rot_frames = None
+            else:
+                print(f"[ReelRenderer] File not found: {img_path}")
         except Exception as e:
             print(f"[ReelRenderer] Failed to load '{self.filename}': {e}")
     
     def _update_angle(self, status, now_ticks):
-        """Update rotation angle based on RPM and playback status."""
+        """Update rotation angle based on RPM, direction, and playback status."""
         if self.rotate_rpm <= 0.0:
             return
         
         status = (status or "").lower()
         if status == "play":
             dt = self._blit_interval_ms / 1000.0
-            self._current_angle = (self._current_angle + self.rotate_rpm * 6.0 * dt) % 360.0
+            self._current_angle = (self._current_angle + self.rotate_rpm * 6.0 * dt * self.direction_mult) % 360.0
     
     def will_blit(self, now_ticks):
         """Check if blit is needed (FPS gating)."""
@@ -825,11 +800,11 @@ class ReelRenderer:
             idx = int(self._current_angle // self.rotation_step) % len(self._rot_frames)
             rot = self._rot_frames[idx]
         else:
-            # Fallback: real-time rotation (CCW direction)
+            # Fallback: real-time rotation
             try:
-                rot = pg.transform.rotate(self._original_surf, self._current_angle)
+                rot = pg.transform.rotate(self._original_surf, -self._current_angle)
             except Exception:
-                rot = pg.transform.rotate(self._original_surf, int(self._current_angle))
+                rot = pg.transform.rotate(self._original_surf, int(-self._current_angle))
         
         # Get rect centered on rotation center
         rot_rect = rot.get_rect(center=self.center)
@@ -1607,6 +1582,7 @@ def start_display_output(pm, callback, meter_config_volumio):
         rot_fps, rot_step = get_rotation_params(rot_quality, rot_custom_fps)
         spool_left_mult = meter_config_volumio.get(SPOOL_LEFT_SPEED, 1.0)
         spool_right_mult = meter_config_volumio.get(SPOOL_RIGHT_SPEED, 1.0)
+        reel_direction = meter_config_volumio.get(REEL_DIRECTION, "ccw")
         
         if reel_left_file and reel_left_center:
             reel_left_renderer = ReelRenderer(
@@ -1619,7 +1595,8 @@ def start_display_output(pm, callback, meter_config_volumio):
                 angle_step_deg=1.0,
                 rotation_fps=rot_fps,
                 rotation_step=rot_step,
-                speed_multiplier=spool_left_mult
+                speed_multiplier=spool_left_mult,
+                direction=reel_direction
             )
             # Capture backing for left reel
             backing_rect = reel_left_renderer.get_backing_rect()
@@ -1637,7 +1614,8 @@ def start_display_output(pm, callback, meter_config_volumio):
                 angle_step_deg=1.0,
                 rotation_fps=rot_fps,
                 rotation_step=rot_step,
-                speed_multiplier=spool_right_mult
+                speed_multiplier=spool_right_mult,
+                direction=reel_direction
             )
             # Capture backing for right reel
             backing_rect = reel_right_renderer.get_backing_rect()
