@@ -48,7 +48,7 @@ const BackupManifestName = 'manifest.json';
 const PeppyConfBackupName = 'peppymeter_config.txt';
 const SpectrumConfBackupName = 'spectrum_config.txt';
 
-var minmax = new Array(14);
+var minmax = new Array(16);
 var last_outputdevice, last_softmixer;
 var peppy_config, base_folder_P;
 
@@ -727,26 +727,32 @@ peppyScreensaver.prototype.getUIConfig = function() {
                     uiconf.sections[0].content[13].attributes[3].max,
                     uiconf.sections[0].content[13].attributes[0].placeholder];
             }
+
+            // meter sensitivity
+            uiconf.sections[0].content[14].value = parseInt(peppy_config.data.source['volume.gain.db'], 10) || 0;
+            minmax[15] = [uiconf.sections[0].content[14].attributes[2].min,
+                uiconf.sections[0].content[14].attributes[3].max,
+                uiconf.sections[0].content[14].attributes[0].placeholder];
             
             // mouse support
             var mouseSupport = (peppy_config.sdl.env['mouse.enabled']).toLowerCase() == 'true' ? true : false;
-            uiconf.sections[0].content[14].value = mouseSupport;
+            uiconf.sections[0].content[15].value = mouseSupport;
 
             // display output
-            uiconf.sections[0].content[15].value.value = self.config.get('displayOutput');
-            uiconf.sections[0].content[15].value.label = 'Display=' + self.config.get('displayOutput');
-            uiconf.sections[0].content[16].value = self.config.get('doNotDeleteThemes') === true;
+            uiconf.sections[0].content[16].value.value = self.config.get('displayOutput');
+            uiconf.sections[0].content[16].value.label = 'Display=' + self.config.get('displayOutput');
+            uiconf.sections[0].content[17].value = self.config.get('doNotDeleteThemes') === true;
 
             // use system fonts (from config.txt, default false = use PeppyFont)
             var useSystemFonts = false;
             try {
                 useSystemFonts = (peppy_config.current['use.system.fonts'] || '').toLowerCase() === 'true';
             } catch (e) {}
-            uiconf.sections[0].content[17].value = useSystemFonts;
+            uiconf.sections[0].content[18].value = useSystemFonts;
 
             // SMB share access (from config.json, default false)
             var smbEnabled = self.config.get('smbShareAccess') === true;
-            uiconf.sections[0].content[18].value = smbEnabled;
+            uiconf.sections[0].content[19].value = smbEnabled;
             
             // Normalize template permissions on settings page access
             // Reclaims ownership from SMB-created files (nobody:nogroup -> volumio:volumio)
@@ -1336,6 +1342,20 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         confData.smoothBuffer = self.minmax('SMOOTH_BUFFER', confData.smoothBuffer, minmax[3]);
         if (peppy_config.data.source['smooth.buffer.size'] != confData.smoothBuffer) {
             peppy_config.data.source['smooth.buffer.size'] = confData.smoothBuffer;
+            noChanges = false;
+        }
+    }
+
+    // write meter sensitivity (gain in dB, consumed by the data source)
+    if (Number.isNaN(parseInt(confData.meterGain, 10)) || !isFinite(confData.meterGain)) {
+        uiNeedsUpdate = true;
+        setTimeout(function () {
+            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.METER_SENSITIVITY') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+        }, 500);
+    } else {
+        confData.meterGain = self.minmax('METER_SENSITIVITY', confData.meterGain, minmax[15]);
+        if (peppy_config.data.source['volume.gain.db'] != confData.meterGain) {
+            peppy_config.data.source['volume.gain.db'] = confData.meterGain;
             noChanges = false;
         }
     }
