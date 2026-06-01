@@ -124,7 +124,12 @@ if [ ! -d "$PEPPYMETER_DIR" ]; then
   mkdir -p "$PLUGIN_DIR/screensaver"
   git clone --depth 1 https://github.com/foonerd/PeppyMeter.git "$PEPPYMETER_DIR"
 else
-  echo "PeppyMeter already installed"
+  echo "PeppyMeter already installed - refreshing engine modules"
+  if [ -d "$PEPPYMETER_DIR/.git" ]; then
+    git -C "$PEPPYMETER_DIR" fetch --depth 1 origin 2>/dev/null || true
+    # Update only the engine modules; leave config.txt and template folders untouched.
+    git -C "$PEPPYMETER_DIR" checkout FETCH_HEAD -- datasource.py configfileparser.py 2>/dev/null || true
+  fi
 fi
 
 # =============================================================================
@@ -357,6 +362,9 @@ use.system.fonts = false\
   # Section data.source
   sed -i 's|pipe.name.*|pipe.name = /tmp/myfifo|g' $CFG
   sed -i 's|smooth.buffer.size.*|smooth.buffer.size = 8|g' $CFG
+  if ! grep -q '^volume.gain.db' $CFG; then
+    sed -i '/^volume.max.in.pipe/a\volume.gain.db = 0' $CFG
+  fi
 fi
 
 # =============================================================================

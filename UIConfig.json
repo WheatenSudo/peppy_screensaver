@@ -28,6 +28,7 @@
                                       "smoothBuffer",
                                       "needleCache",
                                       "cachesize",
+                                      "meterGain",
                                       "mouseEnabled",
                                       "displayOutput",
                                       "doNotDeleteThemes",
@@ -213,6 +214,20 @@
                                              {"max": 99}
                                            ],
                              "value": 20
+                            },
+                            {
+                             "id": "meterGain",
+                             "element": "input",
+                             "type": "number",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.METER_SENSITIVITY_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.METER_SENSITIVITY",
+                             "attributes": [
+                                             {"placeholder": 0},
+                                             {"maxlength": 2},
+                                             {"min": 0},
+                                             {"max": 12}
+                                           ],
+                             "value": 0
                             },
                             {
                              "id": "mouseEnabled",
