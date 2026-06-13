@@ -690,12 +690,25 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 if (stat.isDirectory() && file.includes ('_')) {
                     var partFile = file.split('_');
                     var str_empty = fs.existsSync(base_folder_P + file + '/meters.txt') ? '' : ' (empty)';
+                    var folderLabel = (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty;
                     self.configManager.pushUIConfigParam(uiconf, 'sections[0].content[6].options', {
                         value: file,
-                        label: (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty
+                        label: folderLabel
+                    });
+                    // Theme gallery section (sections[1]): populate the "theme to remove" dropdown
+                    self.configManager.pushUIConfigParam(uiconf, 'sections[1].content[1].options', {
+                        value: file,
+                        label: folderLabel
                     });
                 }
             });
+            // Default the remove dropdown to the active folder (confirm dialog guards removal)
+            if (peppy_config.current[meterFolderStr] && peppy_config.current[meterFolderStr].includes('_')) {
+                var rmPart = peppy_config.current[meterFolderStr].split('_');
+                var rmEmpty = fs.existsSync(base_folder_P + peppy_config.current[meterFolderStr] + '/meters.txt') ? '' : ' (empty)';
+                uiconf.sections[1].content[1].value.value = peppy_config.current[meterFolderStr];
+                uiconf.sections[1].content[1].value.label = (rmPart[1]).replace(upperc, c => c.toUpperCase()) + '-' + rmPart[2] + ' ' + rmPart[0] + rmEmpty;
+            }
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
@@ -2769,6 +2782,180 @@ peppyScreensaver.prototype.selectThemeFromGallery = function (data) {
   if (!result.error) {
     self.commandRouter.closeModals();
   }
+
+  defer.resolve();
+  return defer.promise;
+};
+
+// Theme removal (Item 2). onSave from the Theme gallery section shows a confirm
+// modal; the modal's confirm button calls removeThemeFolderConfirmed. Deletion is
+// not persisted across plugin updates (built-ins return on reinstall, by design).
+peppyScreensaver.prototype.removeThemeFolder = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  var folder = (data && data.themeToRemove && typeof data.themeToRemove === 'object')
+    ? data.themeToRemove.value
+    : (data && data.themeToRemove);
+
+  if (!self.isValidThemeFolderName(folder)) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  var title = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_CONFIRM_TITLE');
+  var msg = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_CONFIRM_MSG') + ' ' + folder;
+  self.commandRouter.broadcastMessage('openModal', {
+    title: title,
+    message: msg,
+    size: 'lg',
+    buttons: [
+      {
+        name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+        class: 'btn btn-default',
+        emit: 'closeModals',
+        payload: ''
+      },
+      {
+        name: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_BTN'),
+        class: 'btn btn-warning',
+        emit: 'callMethod',
+        payload: {
+          endpoint: 'user_interface/peppy_screensaver',
+          method: 'removeThemeFolderConfirmed',
+          data: { folder: folder }
+        }
+      }
+    ]
+  });
+
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.isValidThemeFolderName = function (folder) {
+  return !!folder && typeof folder === 'string' &&
+    folder.indexOf('/') === -1 && folder.indexOf('..') === -1 && folder.indexOf('_') !== -1;
+};
+
+// Safely remove base+folder only when it resolves under the expected templates root.
+peppyScreensaver.prototype.removeThemeTreeFolder = function (baseDir, folder) {
+  var self = this;
+  if (!baseDir) {
+    return false;
+  }
+  var root = path.resolve(baseDir);
+  var target = path.resolve(path.join(root, folder));
+  if (target.indexOf(root + path.sep) !== 0) {
+    self.logger.warn(id + 'removeThemeTreeFolder: refusing path outside root: ' + target);
+    return false;
+  }
+  if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
+    fs.removeSync(target);
+    return true;
+  }
+  return false;
+};
+
+peppyScreensaver.prototype.removeThemeFolderConfirmed = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  var folder = data && data.folder;
+
+  self.commandRouter.closeModals();
+
+  if (!self.isValidThemeFolderName(folder)) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  // Reload configs so base paths and active folder are current
+  try {
+    if (fs.existsSync(PeppyConf)) {
+      peppy_config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
+      base_folder_P = peppy_config.current['base.folder'] + '/';
+      if (base_folder_P === '/') {
+        base_folder_P = PeppyPath + '/';
+      }
+    }
+    if (fs.existsSync(SpectrumConf)) {
+      spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+      base_folder_S = spectrum_config.current['base.folder'] + '/';
+      if (base_folder_S === '/') {
+        base_folder_S = SpectrumPath + '/';
+      }
+    }
+  } catch (e) {
+    self.logger.error(id + 'removeThemeFolderConfirmed: failed to reload config: ' + e.message);
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  if (!fs.existsSync(base_folder_P + folder)) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  // Enumerate remaining meter theme folders to guard the last-skin case
+  var allFolders = [];
+  try {
+    fs.readdirSync(base_folder_P).forEach(function (f) {
+      if (f.indexOf('_') !== -1 && fs.statSync(base_folder_P + f).isDirectory()) {
+        allFolders.push(f);
+      }
+    });
+  } catch (e) {
+    self.logger.error(id + 'removeThemeFolderConfirmed: enumerate failed: ' + e.message);
+  }
+  var remaining = allFolders.filter(function (f) { return f !== folder; });
+  if (remaining.length === 0) {
+    self.commandRouter.pushToastMessage('warning', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_LAST'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  // If removing the active theme, switch to another one first so configs stay valid
+  var wasActive = (peppy_config.current[meterFolderStr] === folder);
+  var switchedTo = null;
+  if (wasActive) {
+    switchedTo = remaining[0];
+    self.applyActiveThemeFolder(switchedTo);
+  }
+
+  // Delete from both trees (meters + spectrum); spectrum twin is optional
+  self.removeThemeTreeFolder(base_folder_P, folder);
+  self.removeThemeTreeFolder(base_folder_S, folder);
+
+  // Drop the cached gallery preview for the removed folder, if present
+  try {
+    if (fs.existsSync(ThemeGalleryDir)) {
+      fs.readdirSync(ThemeGalleryDir).forEach(function (f) {
+        if (f === folder + '.png' || f === folder + '.jpg' || f === folder + '.jpeg' || f === folder + '.select.html') {
+          fs.removeSync(ThemeGalleryDir + '/' + f);
+        }
+      });
+    }
+  } catch (e) {
+    galleryLog(self.logger, 'verbose', 'removeThemeFolderConfirmed: cache cleanup failed: ' + e.message);
+  }
+
+  galleryLog(self.logger, 'basic', 'removeThemeFolderConfirmed removed ' + folder + (wasActive ? ' (was active -> ' + switchedTo + ')' : ''));
+
+  if (wasActive) {
+    self.commandRouter.pushToastMessage('success', pluginName,
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_ACTIVE_RESET') + ' ' + switchedTo);
+  } else {
+    self.commandRouter.pushToastMessage('success', pluginName,
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_DONE') + ' ' + folder);
+  }
+
+  uiNeedsUpdate = true;
+  self.updateUIConfig();
 
   defer.resolve();
   return defer.promise;

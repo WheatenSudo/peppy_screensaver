@@ -283,6 +283,13 @@
                 "description": "TRANSLATE.PEPPY_SCREENSAVER.THEME_GALLERY_DESC",
                 "icon": "fa-picture-o",
                 "hidden": false,
+                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"removeThemeFolder"},
+                "saveButton": {
+                              "label": "TRANSLATE.PEPPY_SCREENSAVER.THEME_REMOVE_BTN",
+                              "data": [
+                                      "themeToRemove"
+                                      ]
+                              },
                 "content": [
                             {
                              "id": "browseThemes",
@@ -294,6 +301,14 @@
                                  "endpoint": "user_interface/peppy_screensaver",
                                  "method": "showThemeGallery"
                              }
+                            },
+                            {
+                             "id": "themeToRemove",
+                             "element": "select",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.THEME_REMOVE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.THEME_REMOVE_LABEL",
+                             "value": {"value": "", "label": "" },
+                             "options": []
                             }
                            ]
                 },
