@@ -72,8 +72,15 @@ from volumio_configfileparser import (
     TIME_TOTAL_POS, TIME_TOTAL_COLOR, TIME_TOTAL_STYLE, TIME_TOTAL_FONT, TIME_TOTAL_FONTSIZE,
     FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTCOLOR,
     FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L,
-    METER_DELAY
+    METER_DELAY,
+    FOLDERLAYER_ENABLED, FOLDERLAYER_FILES, FOLDERLAYER_POS, FOLDERLAYER_DIM,
+    FOLDERLAYER_SCALE, FOLDERLAYER_ZORDER
 )
+
+try:
+    from volumio_folderimage import FolderImageRenderer
+except ImportError:
+    FolderImageRenderer = None
 
 # Vinyl configuration constants
 try:
@@ -1893,6 +1900,10 @@ class TurntableHandler:
         
         # Background surface for layer composition
         self.bgr_surface = None
+        # Extra folder-image layer (Item 5)
+        self.folder_renderer = None
+        self.folderlayer_rect = None
+        self.folderlayer_zorder = "overlay"
         
         # Deceleration/spindown state - vinyl slows down during tonearm lift
         self._decel_start = None  # Timestamp when deceleration started (tonearm lift began)
@@ -2238,6 +2249,24 @@ class TurntableHandler:
                 log_debug("  Album art coupled to vinyl rotation", "verbose")
             
             log_debug(f"  AlbumArtRenderer created (rotate={rotate_enabled})", "verbose")
+
+        # Create folder-image renderer (Item 5): decorative image from the track's folder
+        self.folder_renderer = None
+        self.folderlayer_rect = None
+        self.folderlayer_zorder = "overlay"
+        if FolderImageRenderer is not None and mc_vol.get(FOLDERLAYER_ENABLED):
+            fl_pos = mc_vol.get(FOLDERLAYER_POS)
+            fl_dim = mc_vol.get(FOLDERLAYER_DIM)
+            if fl_pos and fl_dim:
+                self.folderlayer_zorder = (mc_vol.get(FOLDERLAYER_ZORDER) or "overlay")
+                self.folderlayer_rect = pg.Rect(fl_pos[0], fl_pos[1], fl_dim[0], fl_dim[1])
+                self.folder_renderer = FolderImageRenderer(
+                    pos=fl_pos,
+                    dim=fl_dim,
+                    scale_mode=mc_vol.get(FOLDERLAYER_SCALE) or "fit",
+                    filenames=mc_vol.get(FOLDERLAYER_FILES),
+                )
+                log_debug("  FolderImageRenderer created (zorder=" + self.folderlayer_zorder + ")", "verbose")
         
         # Create tonearm renderer
         self.tonearm_renderer = None
@@ -2759,6 +2788,12 @@ class TurntableHandler:
         vinyl_should_spin = is_playing or volatile or in_deceleration or tonearm_is_animating
         vinyl_will_blit = self.vinyl_renderer and vinyl_should_spin and self.vinyl_renderer.will_blit(now_ticks)
         
+        # Pre-calculate folder-image state (Item 5): refresh on track-folder change
+        folder_key_changed = False
+        if self.folder_renderer:
+            self.folder_renderer.set_volumio_url(meta.get("_volumio_url") or "http://localhost:3000")
+            folder_key_changed = self.folder_renderer.update_for_track(meta.get("uri", "") or "")
+
         # Pre-calculate album art state
         album_will_render = False
         album_url_changed = False
@@ -2801,6 +2836,10 @@ class TurntableHandler:
             rect = self.album_renderer.get_visual_rect()
             if rect:
                 clear_regions.append(rect.inflate(8, 8))
+
+        # Folder image (background z-order) - clear when the track folder changed
+        if self.folder_renderer and self.folderlayer_zorder == "background" and folder_key_changed and self.folderlayer_rect:
+            clear_regions.append(self.folderlayer_rect)
         
         # Tonearm region - clear LAST position from bgr_surface (not restore_backing)
         # This clears to pure static background, then overlapping components redraw
@@ -2840,6 +2879,21 @@ class TurntableHandler:
             if album_url_changed or album_will_render or (force_flag and self.album_renderer._scaled_surf):
                 advance = album_will_render
                 rect = self.album_renderer.render(self.screen, status, now_ticks, advance_angle=advance, volatile=volatile)
+                if rect:
+                    dirty_rects.append(rect)
+
+        # Z2b: Folder image (background z-order) - BEFORE meters, like album art.
+        # overlaps_cleared() isn't defined yet here, so test clear_regions inline.
+        if self.folder_renderer and self.folderlayer_zorder == "background" and self.folder_renderer.has_image():
+            fl_overlaps_cleared = False
+            if self.folderlayer_rect:
+                for _region in clear_regions:
+                    if _region and self.folderlayer_rect.colliderect(_region):
+                        fl_overlaps_cleared = True
+                        break
+            if folder_key_changed or fl_overlaps_cleared:
+                self.folder_renderer.force_redraw()
+                rect = self.folder_renderer.render(self.screen)
                 if rect:
                     dirty_rects.append(rect)
         
@@ -3244,6 +3298,21 @@ class TurntableHandler:
                     sx = self.sample_pos[0]
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
         
+        # LAYER: Folder image (overlay z-order) - above dynamic content, below foreground
+        if self.folder_renderer and self.folderlayer_zorder == "overlay" and self.folder_renderer.has_image():
+            fl_rect = self.folder_renderer.get_backing_rect()
+            need_overlay = self.folder_renderer._need_first_blit
+            if not need_overlay and fl_rect:
+                for d in dirty_rects:
+                    if d and fl_rect.colliderect(d):
+                        need_overlay = True
+                        break
+            if need_overlay:
+                self.folder_renderer.force_redraw()
+                rect = self.folder_renderer.render(self.screen)
+                if rect:
+                    dirty_rects.append(rect)
+
         # LAYER: Foreground mask (always last)
         if self.fgr_surf and dirty_rects:
             fgr_x, fgr_y = self.fgr_pos
@@ -3265,6 +3334,7 @@ class TurntableHandler:
         self.vinyl_renderer = None
         self.tonearm_renderer = None
         self.album_renderer = None
+        self.folder_renderer = None
         self.indicator_renderer = None
         self.artist_scroller = None
         self.title_scroller = None
