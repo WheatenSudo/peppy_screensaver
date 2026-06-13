@@ -65,7 +65,7 @@ from volumio_configfileparser import (
     PLAY_TICKER_POS, PLAY_TICKER_COLOR, PLAY_TICKER_MAX, PLAY_TICKER_STYLE, PLAY_TICKER_SPEED,
     PLAY_TICKER_SEPARATOR, PLAY_TICKER_SPACE_BETWEEN, PLAY_TICKER_END_SPACES,
     PLAY_TYPE_POS, PLAY_TYPE_COLOR, PLAY_TYPE_DIM,
-    PLAY_SAMPLE_POS, PLAY_SAMPLE_STYLE, PLAY_SAMPLE_MAX,
+    PLAY_SAMPLE_POS, PLAY_SAMPLE_STYLE, PLAY_SAMPLE_MAX, PLAY_SAMPLE_COLOR,
     TIME_REMAINING_POS, TIMECOLOR,
     TIME_REMAINING_STYLE, TIME_REMAINING_FONT, TIME_REMAINING_FONTSIZE,
     TIME_ELAPSED_POS, TIME_ELAPSED_COLOR, TIME_ELAPSED_STYLE, TIME_ELAPSED_FONT, TIME_ELAPSED_FONTSIZE,
@@ -2064,6 +2064,8 @@ class TurntableHandler:
         self.time_elapsed_color = sanitize_color(mc_vol.get(TIME_ELAPSED_COLOR), self.time_color)
         self.time_total_color = sanitize_color(mc_vol.get(TIME_TOTAL_COLOR), self.time_color)
         self.type_color = sanitize_color(mc_vol.get(PLAY_TYPE_COLOR), self.font_color)
+        # Samplerate colour: separate from type colour; defaults to type_color for back-compat
+        self.sample_color = sanitize_color(mc_vol.get(PLAY_SAMPLE_COLOR), self.type_color)
         
         # Max widths
         artist_max = as_int(mc_vol.get(PLAY_ARTIST_MAX), 0)
@@ -3234,7 +3236,7 @@ class TurntableHandler:
                     self.screen.blit(self.bgr_surface, self.sample_rect.topleft, self.sample_rect)
                     dirty_rects.append(self.sample_rect.copy())
                 
-                self.last_sample_surf = self.sample_font.render(sample_text, True, self.type_color)
+                self.last_sample_surf = self.sample_font.render(sample_text, True, self.sample_color)
                 
                 if self.center_flag and self.sample_box:
                     sx = self.sample_pos[0] + (self.sample_box - self.last_sample_surf.get_width()) // 2

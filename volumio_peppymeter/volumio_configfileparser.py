@@ -228,7 +228,7 @@ PROGRESS_ARC_WIDTH = "progress.arc.width"
 PROGRESS_ARC_ANGLE_START = "progress.arc.angle.start"
 PROGRESS_ARC_ANGLE_END = "progress.arc.angle.end"
 PROGRESS_FONT_SIZE = "progress.font.size"
-# Progress bar markers (optional): progress.marker.N.pos (0-100), .image (filename), .label (text)
+# Progress bar markers (optional): progress.marker.N.pos (0-100), .image (filename), .label (text). N = 1..10
 PROGRESS_MARKER_POS = "progress.marker.%s.pos"
 PROGRESS_MARKER_IMAGE = "progress.marker.%s.image"
 PROGRESS_MARKER_LABEL = "progress.marker.%s.label"
@@ -287,6 +287,7 @@ PLAY_TYPE_DIM = "playinfo.type.dimension"
 PLAY_SAMPLE_POS = "playinfo.samplerate.pos"
 PLAY_SAMPLE_STYLE = "PLAY_SAMPLE_STYLE"
 PLAY_SAMPLE_MAX = "playinfo.samplerate.maxwidth"
+PLAY_SAMPLE_COLOR = "playinfo.samplerate.color"
 TIME_REMAINING_POS = "time.remaining.pos"
 TIMECOLOR = "time.remaining.color"
 TIME_REMAINING_STYLE = "time.remaining.style"
@@ -1126,9 +1127,10 @@ class Volumio_ConfigFileParser(object):
         except:
             d[PROGRESS_FONT_SIZE] = 24
 
-        # Optional progress bar markers (1..5): position 0-100, optional image filename, optional label
+        # Optional progress bar markers (1..10): position 0-100, optional image filename, optional label
+        # Markers must be contiguous from 1; the first missing .pos stops parsing.
         d["progress.markers"] = []
-        for n in range(1, 6):
+        for n in range(1, 11):
             try:
                 pos_key = PROGRESS_MARKER_POS % n
                 pos_val = config_file.getfloat(section, pos_key)
@@ -1374,6 +1376,12 @@ class Volumio_ConfigFileParser(object):
             d[PLAY_SAMPLE_MAX] = config_file.getint(section, PLAY_SAMPLE_MAX)
         except:
             d[PLAY_SAMPLE_MAX] = None
+        # Optional separate samplerate colour; None falls back to playinfo.type.color in the handler
+        try:
+            spl = config_file.get(section, PLAY_SAMPLE_COLOR).split(',')
+            d[PLAY_SAMPLE_COLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))
+        except:
+            d[PLAY_SAMPLE_COLOR] = None
 
         try:
             spl = config_file.get(section, TIME_REMAINING_POS).split(',')
