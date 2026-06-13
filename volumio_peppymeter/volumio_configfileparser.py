@@ -99,6 +99,13 @@ ALBUMART_MSK = "albumart.mask"
 ALBUMBORDER = "albumart.border"
 ALBUMART_ROT = "albumart.rotation"
 ALBUMART_ROT_SPEED = "albumart.rotation.speed"
+# Extra decorative layer sourced from the playing track's folder (Item 5)
+FOLDERLAYER_ENABLED = "folderlayer.enabled"
+FOLDERLAYER_FILES = "folderlayer.files"
+FOLDERLAYER_POS = "folderlayer.pos"
+FOLDERLAYER_DIM = "folderlayer.dimension"
+FOLDERLAYER_SCALE = "folderlayer.scale"
+FOLDERLAYER_ZORDER = "folderlayer.zorder"
 
 # Reel configuration constants (for cassette skins)
 REEL_LEFT_FILE = "reel.left.filename"
@@ -607,6 +614,35 @@ class Volumio_ConfigFileParser(object):
             d[ALBUMART_ROT_SPEED] = config_file.getfloat(section, ALBUMART_ROT_SPEED)
         except:
             d[ALBUMART_ROT_SPEED] = 0.0  # default: no rotation
+
+        # --- Extra folder-image layer (Item 5): decorative image from the track's folder ---
+        try:
+            d[FOLDERLAYER_ENABLED] = config_file.getboolean(section, FOLDERLAYER_ENABLED)
+        except:
+            d[FOLDERLAYER_ENABLED] = False
+        try:
+            _fl_files = config_file.get(section, FOLDERLAYER_FILES)
+            d[FOLDERLAYER_FILES] = [f.strip() for f in _fl_files.split(',') if f.strip()]
+        except:
+            d[FOLDERLAYER_FILES] = ["back.png", "Back.png", "back.jpg", "Back.jpg", "logo.png", "Logo.png"]
+        try:
+            spl = config_file.get(section, FOLDERLAYER_POS).split(',')
+            d[FOLDERLAYER_POS] = (int(spl[0]), int(spl[1]))
+        except:
+            d[FOLDERLAYER_POS] = None
+        try:
+            spl = config_file.get(section, FOLDERLAYER_DIM).split(',')
+            d[FOLDERLAYER_DIM] = (int(spl[0]), int(spl[1]))
+        except:
+            d[FOLDERLAYER_DIM] = None
+        try:
+            d[FOLDERLAYER_SCALE] = config_file.get(section, FOLDERLAYER_SCALE).strip().lower()
+        except:
+            d[FOLDERLAYER_SCALE] = "fit"  # 'fit' (best-fit, keep aspect) or 'stretch'
+        try:
+            d[FOLDERLAYER_ZORDER] = config_file.get(section, FOLDERLAYER_ZORDER).strip().lower()
+        except:
+            d[FOLDERLAYER_ZORDER] = "overlay"  # 'overlay' (above meters) or 'background' (behind meters)
 
         # --- Reel configuration (for cassette skins) ---
         try:

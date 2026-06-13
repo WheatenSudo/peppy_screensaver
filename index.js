@@ -502,6 +502,16 @@ peppyScreensaver.prototype.onStart = function() {
         method: 'selectThemeFromGallery'
     });
     self.logger.info(id + 'REST endpoint registered: peppy_screensaver_theme');
+
+    // Extra folder-image layer (Item 5): fetch a decorative image from the playing
+    // track's folder. POST { endpoint: 'peppy_screensaver_folderimage', data: { uri, filenames } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_folderimage',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getFolderImage'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_folderimage');
     
     // Initialize config version on startup
     self.updateConfigVersion();
@@ -2229,6 +2239,59 @@ peppyScreensaver.prototype.getVinylImage = function (data) {
     defer.resolve({ success: true, data: buf.toString('base64') });
   } catch (err) {
     self.logger.error(id + 'getVinylImage: ' + err.message);
+    defer.resolve({ success: false, error: err.message });
+  }
+  return defer.promise;
+};
+
+// HTTP endpoint: Return the first matching decorative image from the playing track's
+// folder, as base64. Generalises getVinylImage for the extra folder layer (Item 5).
+// Called via: POST /api/v1/pluginEndpoint with body
+//   { endpoint: 'peppy_screensaver_folderimage', data: { uri: '...', filenames: ['back.png','logo.png',...] } }
+// Resolution and sandboxing are identical to getVinylImage (confined under /mnt).
+// For non-file sources (Spotify, webradio, etc.) the path won't exist -> { success:false }.
+peppyScreensaver.prototype.getFolderImage = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var uri = (data && typeof data.uri === 'string') ? data.uri.trim() : '';
+  var filenames = (data && Array.isArray(data.filenames)) ? data.filenames : [];
+  if (typeof filenames === 'string') {
+    filenames = filenames.split(',');
+  }
+  if (!uri || !filenames.length) {
+    defer.resolve({ success: false, error: 'invalid uri or filenames' });
+    return defer.promise;
+  }
+  var allowedExt = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+  try {
+    var san = uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, '');
+    var base = san.startsWith('/') ? '/mnt' + san : '/mnt/' + san;
+    var albumFolder = path.dirname(base);
+    var i;
+    for (i = 0; i < filenames.length; i++) {
+      var filename = (typeof filenames[i] === 'string') ? filenames[i].trim() : '';
+      if (!filename || filename.indexOf('/') !== -1 || filename.indexOf('..') !== -1) {
+        continue;
+      }
+      if (allowedExt.indexOf(path.extname(filename).toLowerCase()) === -1) {
+        continue;
+      }
+      var realPath = path.resolve(path.join(albumFolder, filename));
+      if (realPath.indexOf('/mnt/') !== 0 && realPath.indexOf('/mnt') !== 0) {
+        continue;
+      }
+      if (realPath.indexOf('..') !== -1) {
+        continue;
+      }
+      if (fs.existsSync(realPath) && fs.statSync(realPath).isFile()) {
+        var buf = fs.readFileSync(realPath, { encoding: null });
+        defer.resolve({ success: true, filename: filename, data: buf.toString('base64') });
+        return defer.promise;
+      }
+    }
+    defer.resolve({ success: false, error: 'not found' });
+  } catch (err) {
+    self.logger.error(id + 'getFolderImage: ' + err.message);
     defer.resolve({ success: false, error: err.message });
   }
   return defer.promise;
