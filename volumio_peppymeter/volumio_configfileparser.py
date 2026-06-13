@@ -92,6 +92,7 @@ QUEUE_MODE = "queue.mode"
 
 EXTENDED_CONF = "config.extend"
 METER_VISIBLE = "meter.visible"
+METER_PREVIEW = "meter.preview"
 ALBUMART_POS = "albumart.pos"
 ALBUMART_DIM = "albumart.dimension"
 ALBUMART_MSK = "albumart.mask"
@@ -573,6 +574,10 @@ class Volumio_ConfigFileParser(object):
             d[METER_VISIBLE] = config_file.getboolean(section, METER_VISIBLE)
         except:
             d[METER_VISIBLE] = True
+        try:
+            d[METER_PREVIEW] = config_file.get(section, METER_PREVIEW)
+        except:
+            d[METER_PREVIEW] = None
         try:
             spl = config_file.get(section, ALBUMART_POS).split(',')
             d[ALBUMART_POS] =  (int(spl[0]), int(spl[1]))

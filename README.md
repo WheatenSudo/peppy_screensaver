@@ -750,6 +750,25 @@ peppy_screensaver: ALSA: config written: /data/plugins/.../asound/Peppyalsa.post
 
 **Trace level** adds the full generated config content (can be large).
 
+#### Theme gallery logging
+
+When **Browse themes** is opened or a theme is selected from the gallery, preview resolution is logged to the Volumio log (same `debug.level` setting as ALSA logging above). Search for `peppy_screensaver: GALLERY:`.
+
+| Level | What is logged |
+|-------|----------------|
+| **Basic** | Gallery open/close summary, resolved preview source per theme (`folder:preview.png`, `meter.preview`, etc.), theme selection REST calls |
+| **Verbose** | Skipped candidates, missing files, cache copy operations |
+| **Trace** | Per-section meters.txt key scans, cache hits |
+
+**Example at Basic level:**
+```
+peppy_screensaver: GALLERY: showThemeGallery called, activeFolder=1280x720_MySkin, base=/data/.../templates/
+peppy_screensaver: GALLERY: collectThemeGalleryEntries [1280x720_MySkin] -> folder preview.png
+peppy_screensaver: GALLERY: showThemeGallery collected 12 theme(s)
+peppy_screensaver: GALLERY: selectThemeFromGallery REST call folder=800x480_OtherSkin
+peppy_screensaver: GALLERY: applyActiveThemeFolder applied 800x480_OtherSkin -> OtherSkin-800x480
+```
+
 ### Configuration Diagnostic
 
 To dump the current meter configuration (useful for diagnosing missing backgrounds, wrong paths, etc.):
@@ -762,6 +781,7 @@ python3 diagnose_config.py
 This shows:
 - Current meter name and settings
 - Background image keys (screen.bgr, bgr.filename, fgr.filename)
+- Theme gallery preview keys (`meter.preview`, folder `preview.png`, fallback chain)
 - Meter folder paths
 - Available image files
 

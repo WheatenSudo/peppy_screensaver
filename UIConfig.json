@@ -277,6 +277,27 @@
                 ]
             },
                 {
+                "id": "theme_gallery_conf",
+                "element": "section",
+                "label": "TRANSLATE.PEPPY_SCREENSAVER.THEME_GALLERY_CONF",
+                "description": "TRANSLATE.PEPPY_SCREENSAVER.THEME_GALLERY_DESC",
+                "icon": "fa-picture-o",
+                "hidden": false,
+                "content": [
+                            {
+                             "id": "browseThemes",
+                             "element": "button",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.BROWSE_THEMES_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.BROWSE_THEMES",
+                             "onClick": {
+                                 "type": "controller",
+                                 "endpoint": "user_interface/peppy_screensaver",
+                                 "method": "showThemeGallery"
+                             }
+                            }
+                           ]
+                },
+                {
                 "id": "VUmeter_conf",
                 "element": "section",
                 "label": "TRANSLATE.PEPPY_SCREENSAVER.VUMETER_CONF",

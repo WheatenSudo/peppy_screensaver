@@ -47,6 +47,29 @@ const BackupWarnCount = 20; // warn (not block) beyond this many backups
 const BackupManifestName = 'manifest.json';
 const PeppyConfBackupName = 'peppymeter_config.txt';
 const SpectrumConfBackupName = 'spectrum_config.txt';
+const ThemeGalleryDir = PluginPath + '/theme-gallery';
+const ThemeGallerySectionPrefix = 'user_interface/peppy_screensaver/theme-gallery/';
+const THEME_PREVIEW_FILES = ['preview.png', 'preview.jpg', 'preview.jpeg', 'art.png', 'art.jpg'];
+const THEME_GALLERY_COLS = 3;
+const THEME_GALLERY_IMG_WIDTH = 200;
+const THEME_GALLERY_ACTIVE_BORDER = '#54C688';
+const THEME_GALLERY_ACTIVE_SHADOW = '#2a6848';
+// Gallery preview resolution logging — gated by peppy_config debug.level
+// basic: resolved source; verbose: candidates/skips; trace: per-section detail
+function galleryLog(logger, level, msg) {
+    if (!peppy_config || !peppy_config.current) return;
+    var cfgLevel = peppy_config.current['debug.level'] || 'off';
+    var levels = { 'off': 0, 'basic': 1, 'verbose': 2, 'trace': 3 };
+    if ((levels[cfgLevel] || 0) >= (levels[level] || 0)) {
+        logger.info(id + 'GALLERY: ' + msg);
+    }
+}
+
+const THEME_PREVIEW_METER_KEYS = [
+  { key: 'meter.preview', source: 'meter.preview' },
+  { key: 'screen.bgr', source: 'screen.bgr' },
+  { key: 'bgr.filename', source: 'bgr.filename' }
+];
 
 var minmax = new Array(16);
 var last_outputdevice, last_softmixer;
@@ -469,6 +492,16 @@ peppyScreensaver.prototype.onStart = function() {
         method: 'getVinylImage'
     });
     self.logger.info(id + 'REST endpoint registered: peppy_screensaver_vinyl');
+
+    // Theme gallery: select via clickable name links (select.html shim POSTs to REST, then redirects)
+    // POST /api/v1/pluginEndpoint  body: { endpoint: 'peppy_screensaver_theme', data: { folder: '1280x720_MyTheme_style' } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_theme',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'selectThemeFromGallery'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_theme');
     
     // Initialize config version on startup
     self.updateConfigVersion();
@@ -776,16 +809,16 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 '120': 'PEPPY_SCREENSAVER.PERSIST_120',
                 '300': 'PEPPY_SCREENSAVER.PERSIST_300'
             };
-            uiconf.sections[6].content[0].value.value = persistVal;
-            uiconf.sections[6].content[0].value.label = self.commandRouter.getI18nString(persistLabels[persistVal] || 'PEPPY_SCREENSAVER.PERSIST_30');
+            uiconf.sections[7].content[0].value.value = persistVal;
+            uiconf.sections[7].content[0].value.label = self.commandRouter.getI18nString(persistLabels[persistVal] || 'PEPPY_SCREENSAVER.PERSIST_30');
 
             var persistDisplayVal = self.config.get('persist_display') || 'freeze';
             var persistDisplayLabels = {
                 'freeze': 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE',
                 'countdown': 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_COUNTDOWN'
             };
-            uiconf.sections[6].content[1].value.value = persistDisplayVal;
-            uiconf.sections[6].content[1].value.label = self.commandRouter.getI18nString(persistDisplayLabels[persistDisplayVal] || 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE');
+            uiconf.sections[7].content[1].value.value = persistDisplayVal;
+            uiconf.sections[7].content[1].value.label = self.commandRouter.getI18nString(persistDisplayLabels[persistDisplayVal] || 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE');
 
             // queue mode (read from PeppyConf, fallback to config.json)
             var queueMode = 'track';
@@ -795,10 +828,10 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 queueMode = self.config.get('queue.mode') || 'track';
             }
             
-            var queueModeOptions = uiconf.sections[6].content[2].options;
+            var queueModeOptions = uiconf.sections[7].content[2].options;
             for (var i = 0; i < queueModeOptions.length; i++) {
                 if (queueModeOptions[i].value === queueMode) {
-                    uiconf.sections[6].content[2].value = queueModeOptions[i];
+                    uiconf.sections[7].content[2].value = queueModeOptions[i];
                     break;
                 }
             }
@@ -811,16 +844,16 @@ peppyScreensaver.prototype.getUIConfig = function() {
 
                 // current meter
                 if ((peppy_config.current.meter).includes(',')) {
-                    uiconf.sections[1].content[0].value.value = 'list';
+                    uiconf.sections[2].content[0].value.value = 'list';
                 } else {
-                    uiconf.sections[1].content[0].value.value = peppy_config.current.meter;
+                    uiconf.sections[2].content[0].value.value = peppy_config.current.meter;
                 }
-                uiconf.sections[1].content[0].value.label = (uiconf.sections[1].content[0].value.value).replace(upperc, c => c.toUpperCase());
+                uiconf.sections[2].content[0].value.label = (uiconf.sections[2].content[0].value.value).replace(upperc, c => c.toUpperCase());
 
                 // read all sections from active meters.txt and fill selection list
                 for (var section in metersconfig) {
                     availMeters += section + ', ';
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[1].content[0].options', {
+                    self.configManager.pushUIConfigParam(uiconf, 'sections[2].content[0].options', {
                         value: section,
                         label: section.replace(upperc, c => c.toUpperCase())
                     });
@@ -829,103 +862,103 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 // list selection
                 availMeters = availMeters.substring(0, availMeters.length -2);
                 if (self.config.get('randomSelection') == '') {
-                    uiconf.sections[1].content[1].value = availMeters;
+                    uiconf.sections[2].content[1].value = availMeters;
                 } else {
-                    uiconf.sections[1].content[1].value = self.config.get('randomSelection');
+                    uiconf.sections[2].content[1].value = self.config.get('randomSelection');
                 }
-                uiconf.sections[1].content[1].doc = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.RANDOMSELECTION_DOC') + '<b>' + availMeters + '</b>';
+                uiconf.sections[2].content[1].doc = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.RANDOMSELECTION_DOC') + '<b>' + availMeters + '</b>';
 
                 // random mode (visible only for random and list)
-                if (uiconf.sections[1].content[0].value.value == 'random' || uiconf.sections[1].content[0].value.value == 'list') {
-                    uiconf.sections[1].content[2].hidden = false;
+                if (uiconf.sections[2].content[0].value.value == 'random' || uiconf.sections[2].content[0].value.value == 'list') {
+                    uiconf.sections[2].content[2].hidden = false;
                 }
                 var random_change_title = (peppy_config.current['random.change.title']).toLowerCase() == 'true' ? true : false;
                 if (random_change_title) {
-                    uiconf.sections[1].content[2].value.value = 'titlechange';
-                    uiconf.sections[1].content[2].value.label = 'On Title Change';
+                    uiconf.sections[2].content[2].value.value = 'titlechange';
+                    uiconf.sections[2].content[2].value.label = 'On Title Change';
                 } else {
-                    uiconf.sections[1].content[2].value.value = 'interval';
-                    uiconf.sections[1].content[2].value.label = 'Interval';
+                    uiconf.sections[2].content[2].value.value = 'interval';
+                    uiconf.sections[2].content[2].value.label = 'Interval';
                 }    
                 
                 // random intervall
-                uiconf.sections[1].content[3].value = parseInt(peppy_config.current['random.meter.interval'], 10);
-                minmax[5] = [uiconf.sections[1].content[3].attributes[2].min,
-                    uiconf.sections[1].content[3].attributes[3].max,
-                    uiconf.sections[1].content[3].attributes[0].placeholder];
+                uiconf.sections[2].content[3].value = parseInt(peppy_config.current['random.meter.interval'], 10);
+                minmax[5] = [uiconf.sections[2].content[3].attributes[2].min,
+                    uiconf.sections[2].content[3].attributes[3].max,
+                    uiconf.sections[2].content[3].attributes[0].placeholder];
 
             }
             
             // section 2 - Performance settings -----------------------------
             // frame rate
             var frameRate = parseInt(peppy_config.current['frame.rate'], 10) || 30;
-            uiconf.sections[2].content[0].value = frameRate;
-            minmax[6] = [uiconf.sections[2].content[0].attributes[2].min,
-                uiconf.sections[2].content[0].attributes[3].max,
-                uiconf.sections[2].content[0].attributes[0].placeholder];
+            uiconf.sections[3].content[0].value = frameRate;
+            minmax[6] = [uiconf.sections[3].content[0].attributes[2].min,
+                uiconf.sections[3].content[0].attributes[3].max,
+                uiconf.sections[3].content[0].attributes[0].placeholder];
             
             // update interval (from peppy config.txt)
             var updateInterval = parseInt(peppy_config.current['update.interval'], 10) || 2;
-            uiconf.sections[2].content[1].value = updateInterval;
-            minmax[7] = [uiconf.sections[2].content[1].attributes[2].min,
-                uiconf.sections[2].content[1].attributes[3].max,
-                uiconf.sections[2].content[1].attributes[0].placeholder];
+            uiconf.sections[3].content[1].value = updateInterval;
+            minmax[7] = [uiconf.sections[3].content[1].attributes[2].min,
+                uiconf.sections[3].content[1].attributes[3].max,
+                uiconf.sections[3].content[1].attributes[0].placeholder];
             
             // meter delay (ms)
             var meterDelay = parseInt(peppy_config.current['meter.delay'], 10);
             if (isNaN(meterDelay)) meterDelay = 10;
-            uiconf.sections[2].content[2].value = meterDelay;
-            minmax[8] = [uiconf.sections[2].content[2].attributes[2].min,
-                uiconf.sections[2].content[2].attributes[3].max,
-                uiconf.sections[2].content[2].attributes[0].placeholder];
+            uiconf.sections[3].content[2].value = meterDelay;
+            minmax[8] = [uiconf.sections[3].content[2].attributes[2].min,
+                uiconf.sections[3].content[2].attributes[3].max,
+                uiconf.sections[3].content[2].attributes[0].placeholder];
             
             // section 4 - Scrolling settings -----------------------------
             // scrolling mode
             var scrollingMode = peppy_config.current['scrolling.mode'] || 'skin';
-            var scrollingOptions = uiconf.sections[4].content[0].options;
+            var scrollingOptions = uiconf.sections[5].content[0].options;
             for (var i = 0; i < scrollingOptions.length; i++) {
                 if (scrollingOptions[i].value === scrollingMode) {
-                    uiconf.sections[4].content[0].value = scrollingOptions[i];
+                    uiconf.sections[5].content[0].value = scrollingOptions[i];
                     break;
                 }
             }
             
             // scrolling speed artist
             var scrollSpeedArtist = parseInt(peppy_config.current['scrolling.speed.artist'], 10) || 40;
-            uiconf.sections[4].content[1].value = scrollSpeedArtist;
+            uiconf.sections[5].content[1].value = scrollSpeedArtist;
             
             // scrolling speed title
             var scrollSpeedTitle = parseInt(peppy_config.current['scrolling.speed.title'], 10) || 40;
-            uiconf.sections[4].content[2].value = scrollSpeedTitle;
+            uiconf.sections[5].content[2].value = scrollSpeedTitle;
             
             // scrolling speed album
             var scrollSpeedAlbum = parseInt(peppy_config.current['scrolling.speed.album'], 10) || 40;
-            uiconf.sections[4].content[3].value = scrollSpeedAlbum;
+            uiconf.sections[5].content[3].value = scrollSpeedAlbum;
             
             // section 5 - Animation settings -----------------------------
             // transition type
             var transitionType = peppy_config.current['transition.type'] || 'fade';
-            var transitionOptions = uiconf.sections[5].content[0].options;
+            var transitionOptions = uiconf.sections[6].content[0].options;
             for (var i = 0; i < transitionOptions.length; i++) {
                 if (transitionOptions[i].value === transitionType) {
-                    uiconf.sections[5].content[0].value = transitionOptions[i];
+                    uiconf.sections[6].content[0].value = transitionOptions[i];
                     break;
                 }
             }
             
             // transition duration
             var transitionDuration = parseFloat(peppy_config.current['transition.duration']) || 0.5;
-            uiconf.sections[5].content[1].value = transitionDuration;
-            minmax[9] = [uiconf.sections[5].content[1].attributes[2].min,
-                uiconf.sections[5].content[1].attributes[3].max,
-                uiconf.sections[5].content[1].attributes[0].placeholder];
+            uiconf.sections[6].content[1].value = transitionDuration;
+            minmax[9] = [uiconf.sections[6].content[1].attributes[2].min,
+                uiconf.sections[6].content[1].attributes[3].max,
+                uiconf.sections[6].content[1].attributes[0].placeholder];
             
             // transition color
             var transitionColor = peppy_config.current['transition.color'] || 'black';
-            var colorOptions = uiconf.sections[5].content[2].options;
+            var colorOptions = uiconf.sections[6].content[2].options;
             for (var i = 0; i < colorOptions.length; i++) {
                 if (colorOptions[i].value === transitionColor) {
-                    uiconf.sections[5].content[2].value = colorOptions[i];
+                    uiconf.sections[6].content[2].value = colorOptions[i];
                     break;
                 }
             }
@@ -933,60 +966,60 @@ peppyScreensaver.prototype.getUIConfig = function() {
             // transition opacity
             var transitionOpacity = parseInt(peppy_config.current['transition.opacity'], 10);
             if (isNaN(transitionOpacity)) transitionOpacity = 100;
-            uiconf.sections[5].content[3].value = transitionOpacity;
-            minmax[10] = [uiconf.sections[5].content[3].attributes[2].min,
-                uiconf.sections[5].content[3].attributes[3].max,
-                uiconf.sections[5].content[3].attributes[0].placeholder];
+            uiconf.sections[6].content[3].value = transitionOpacity;
+            minmax[10] = [uiconf.sections[6].content[3].attributes[2].min,
+                uiconf.sections[6].content[3].attributes[3].max,
+                uiconf.sections[6].content[3].attributes[0].placeholder];
             
             // section 3 - Rotation settings -----------------------------
             // rotation quality
             var rotationQuality = peppy_config.current['rotation.quality'] || 'medium';
-            var qualityOptions = uiconf.sections[3].content[0].options;
+            var qualityOptions = uiconf.sections[4].content[0].options;
             for (var i = 0; i < qualityOptions.length; i++) {
                 if (qualityOptions[i].value === rotationQuality) {
-                    uiconf.sections[3].content[0].value = qualityOptions[i];
+                    uiconf.sections[4].content[0].value = qualityOptions[i];
                     break;
                 }
             }
             
             // rotation FPS (custom)
             var rotationFPS = parseInt(peppy_config.current['rotation.fps'], 10) || 8;
-            uiconf.sections[3].content[1].value = rotationFPS;
-            minmax[11] = [uiconf.sections[3].content[1].attributes[2].min,
-                uiconf.sections[3].content[1].attributes[3].max,
-                uiconf.sections[3].content[1].attributes[0].placeholder];
+            uiconf.sections[4].content[1].value = rotationFPS;
+            minmax[11] = [uiconf.sections[4].content[1].attributes[2].min,
+                uiconf.sections[4].content[1].attributes[3].max,
+                uiconf.sections[4].content[1].attributes[0].placeholder];
             
             // rotation speed (vinyl multiplier)
             var rotationSpeed = parseFloat(peppy_config.current['rotation.speed']) || 1.0;
-            uiconf.sections[3].content[2].value = rotationSpeed;
-            minmax[12] = [uiconf.sections[3].content[2].attributes[2].min,
-                uiconf.sections[3].content[2].attributes[3].max,
-                uiconf.sections[3].content[2].attributes[0].placeholder];
+            uiconf.sections[4].content[2].value = rotationSpeed;
+            minmax[12] = [uiconf.sections[4].content[2].attributes[2].min,
+                uiconf.sections[4].content[2].attributes[3].max,
+                uiconf.sections[4].content[2].attributes[0].placeholder];
             
             // spool left speed (cassette multiplier)
             var spoolLeftSpeed = parseFloat(peppy_config.current['spool.left.speed']) || 1.0;
-            uiconf.sections[3].content[3].value = spoolLeftSpeed;
-            minmax[13] = [uiconf.sections[3].content[3].attributes[2].min,
-                uiconf.sections[3].content[3].attributes[3].max,
-                uiconf.sections[3].content[3].attributes[0].placeholder];
+            uiconf.sections[4].content[3].value = spoolLeftSpeed;
+            minmax[13] = [uiconf.sections[4].content[3].attributes[2].min,
+                uiconf.sections[4].content[3].attributes[3].max,
+                uiconf.sections[4].content[3].attributes[0].placeholder];
             
             // spool right speed (cassette multiplier)
             var spoolRightSpeed = parseFloat(peppy_config.current['spool.right.speed']) || 1.0;
-            uiconf.sections[3].content[4].value = spoolRightSpeed;
-            minmax[14] = [uiconf.sections[3].content[4].attributes[2].min,
-                uiconf.sections[3].content[4].attributes[3].max,
-                uiconf.sections[3].content[4].attributes[0].placeholder];
+            uiconf.sections[4].content[4].value = spoolRightSpeed;
+            minmax[14] = [uiconf.sections[4].content[4].attributes[2].min,
+                uiconf.sections[4].content[4].attributes[3].max,
+                uiconf.sections[4].content[4].attributes[0].placeholder];
             
             // spool adaptive (dynamic speeds based on progress)
             var spoolAdaptive = peppy_config.current['spool.adaptive'] === true || peppy_config.current['spool.adaptive'] === 'true';
-            uiconf.sections[3].content[5].value = spoolAdaptive;
+            uiconf.sections[4].content[5].value = spoolAdaptive;
             
             // reel direction
             var reelDirection = peppy_config.current['reel.direction'] || 'ccw';
-            var directionOptions = uiconf.sections[3].content[6].options;
+            var directionOptions = uiconf.sections[4].content[6].options;
             for (var i = 0; i < directionOptions.length; i++) {
                 if (directionOptions[i].value === reelDirection) {
-                    uiconf.sections[3].content[6].value = directionOptions[i];
+                    uiconf.sections[4].content[6].value = directionOptions[i];
                     break;
                 }
             }
@@ -998,17 +1031,17 @@ peppyScreensaver.prototype.getUIConfig = function() {
             if (remoteServerEnabled === undefined) {
                 remoteServerEnabled = peppy_config && peppy_config.current ? peppy_config.current['remote.server.enabled'] === 'true' : false;
             }
-            uiconf.sections[7].content[0].value = remoteServerEnabled;
+            uiconf.sections[8].content[0].value = remoteServerEnabled;
             
             // server mode
             var remoteServerMode = self.config.get('remoteServerMode');
             if (remoteServerMode === undefined) {
                 remoteServerMode = peppy_config && peppy_config.current ? (peppy_config.current['remote.server.mode'] || 'server_local') : 'server_local';
             }
-            var remoteServerModeOptions = uiconf.sections[7].content[1].options;
+            var remoteServerModeOptions = uiconf.sections[8].content[1].options;
             for (var i = 0; i < remoteServerModeOptions.length; i++) {
                 if (remoteServerModeOptions[i].value === remoteServerMode) {
-                    uiconf.sections[7].content[1].value = remoteServerModeOptions[i];
+                    uiconf.sections[8].content[1].value = remoteServerModeOptions[i];
                     break;
                 }
             }
@@ -1018,49 +1051,39 @@ peppyScreensaver.prototype.getUIConfig = function() {
             if (remoteDiscoveryPort === undefined) {
                 remoteDiscoveryPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.discovery.port'], 10) || 5579) : 5579;
             }
-            uiconf.sections[7].content[2].value = remoteDiscoveryPort;
+            uiconf.sections[8].content[2].value = remoteDiscoveryPort;
             
             // meters data port
             var remoteServerPort = self.config.get('remoteServerPort');
             if (remoteServerPort === undefined) {
                 remoteServerPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.server.port'], 10) || 5580) : 5580;
             }
-            uiconf.sections[7].content[3].value = remoteServerPort;
+            uiconf.sections[8].content[3].value = remoteServerPort;
             
             // spectrum port
             var remoteSpectrumPort = self.config.get('remoteSpectrumPort');
             if (remoteSpectrumPort === undefined) {
                 remoteSpectrumPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.spectrum.port'], 10) || 5581) : 5581;
             }
-            uiconf.sections[7].content[4].value = remoteSpectrumPort;
+            uiconf.sections[8].content[4].value = remoteSpectrumPort;
             
             // config sync interval
             var configSyncInterval = self.config.get('configSyncInterval');
             if (configSyncInterval === undefined) {
                 configSyncInterval = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.config.sync.interval'], 10) || 1) : 1;
             }
-            uiconf.sections[7].content[5].value = configSyncInterval;
+            uiconf.sections[8].content[5].value = configSyncInterval;
             
-            // sections 8-10 - Backup and Restore (Continuity Engine) -------
-            // Section 8 (Create Backup) has nothing to populate - only the
-            // input field and its saveButton. Sections 9 (Restore) and 10
+            // sections 9-11 - Backup and Restore (Continuity Engine) -------
+            // Section 9 (Create Backup) has nothing to populate - only the
+            // input field and its saveButton. Sections 10 (Restore) and 11
             // (Delete) share the same backup list dropdown.
             var backupList = self.listSettingsBackups();
             if (backupList.length > 0) {
                 var firstLabel = backupList[0].name + ' (' + backupList[0].createdLabel + ', v' + backupList[0].pluginVersion + ')';
                 var firstValue = { value: backupList[0].name, label: firstLabel };
                 
-                // Section 9 - Restore Backup dropdown
-                uiconf.sections[9].content[0].options = [];
-                backupList.forEach(function (b) {
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[9].content[0].options', {
-                        value: b.name,
-                        label: b.name + ' (' + b.createdLabel + ', v' + b.pluginVersion + ')'
-                    });
-                });
-                uiconf.sections[9].content[0].value = firstValue;
-                
-                // Section 10 - Delete Backup dropdown (same list)
+                // Section 10 - Restore Backup dropdown
                 uiconf.sections[10].content[0].options = [];
                 backupList.forEach(function (b) {
                     self.configManager.pushUIConfigParam(uiconf, 'sections[10].content[0].options', {
@@ -1069,15 +1092,25 @@ peppyScreensaver.prototype.getUIConfig = function() {
                     });
                 });
                 uiconf.sections[10].content[0].value = firstValue;
+                
+                // Section 11 - Delete Backup dropdown (same list)
+                uiconf.sections[11].content[0].options = [];
+                backupList.forEach(function (b) {
+                    self.configManager.pushUIConfigParam(uiconf, 'sections[11].content[0].options', {
+                        value: b.name,
+                        label: b.name + ' (' + b.createdLabel + ', v' + b.pluginVersion + ')'
+                    });
+                });
+                uiconf.sections[11].content[0].value = firstValue;
             }
             
-            // section 11 - Debug settings -----------------------------
+            // section 12 - Debug settings -----------------------------
             // debug level
             var debugLevel = peppy_config.current['debug.level'] || 'off';
-            var debugLevelOptions = uiconf.sections[11].content[0].options;
+            var debugLevelOptions = uiconf.sections[12].content[0].options;
             for (var i = 0; i < debugLevelOptions.length; i++) {
                 if (debugLevelOptions[i].value === debugLevel) {
-                    uiconf.sections[11].content[0].value = debugLevelOptions[i];
+                    uiconf.sections[12].content[0].value = debugLevelOptions[i];
                     break;
                 }
             }
@@ -1094,25 +1127,25 @@ peppyScreensaver.prototype.getUIConfig = function() {
             ];
             for (var i = 0; i < traceKeys.length; i++) {
                 var traceValue = peppy_config.current[traceKeys[i]] === 'true' || peppy_config.current[traceKeys[i]] === true;
-                uiconf.sections[11].content[i + 1].value = traceValue;
+                uiconf.sections[12].content[i + 1].value = traceValue;
             }
             
-            // section 12 - Profiling settings -----------------------------
+            // section 13 - Profiling settings -----------------------------
             // per-frame timing
             var profilingTiming = peppy_config.current['profiling.timing'] === 'true' || peppy_config.current['profiling.timing'] === true;
-            uiconf.sections[12].content[0].value = profilingTiming;
+            uiconf.sections[13].content[0].value = profilingTiming;
             
             // timing interval
             var profilingInterval = parseInt(peppy_config.current['profiling.interval'], 10) || 30;
-            uiconf.sections[12].content[1].value = profilingInterval;
+            uiconf.sections[13].content[1].value = profilingInterval;
             
             // cProfile enabled
             var profilingCprofile = peppy_config.current['profiling.cprofile'] === 'true' || peppy_config.current['profiling.cprofile'] === true;
-            uiconf.sections[12].content[2].value = profilingCprofile;
+            uiconf.sections[13].content[2].value = profilingCprofile;
             
             // profile duration
             var profilingDuration = parseInt(peppy_config.current['profiling.duration'], 10) || 60;
-            uiconf.sections[12].content[3].value = profilingDuration;
+            uiconf.sections[13].content[3].value = profilingDuration;
             
         } else {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));            
@@ -2185,6 +2218,615 @@ peppyScreensaver.prototype.getVinylImage = function (data) {
     self.logger.error(id + 'getVinylImage: ' + err.message);
     defer.resolve({ success: false, error: err.message });
   }
+  return defer.promise;
+};
+
+function escapeThemeGalleryHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildThemeGalleryActiveFrameOpen() {
+  return '<table cellpadding="2" cellspacing="0" bgcolor="' + THEME_GALLERY_ACTIVE_SHADOW + '">' +
+    '<tr><td><table cellpadding="2" cellspacing="0" bgcolor="' + THEME_GALLERY_ACTIVE_BORDER + '">' +
+    '<tr><td align="center">';
+}
+
+function buildThemeGalleryActiveFrameClose() {
+  return '</td></tr></table></td></tr></table>';
+}
+
+function escapeThemeGalleryJsString(text) {
+  return JSON.stringify(String(text));
+}
+
+peppyScreensaver.prototype.formatThemeShortLabel = function (folder) {
+  var upperc = /\b([^-])/g;
+  if (!folder || !folder.includes('_')) {
+    return folder || '';
+  }
+  var parts = folder.split('_');
+  if (parts.length >= 3) {
+    return parts[1].replace(upperc, function (c) { return c.toUpperCase(); }) + '-' + parts[2];
+  }
+  return parts[1].replace(upperc, function (c) { return c.toUpperCase(); });
+};
+
+peppyScreensaver.prototype.parseThemeResolution = function (folder) {
+  if (!folder || folder.indexOf('_') === -1) {
+    return '';
+  }
+  return folder.split('_')[0];
+};
+
+peppyScreensaver.prototype.isThemeGalleryAssetName = function (filename) {
+  if (!filename) {
+    return false;
+  }
+  var name = String(filename).trim();
+  return name.length > 0 && name.indexOf('/') === -1 && name.indexOf('..') === -1;
+};
+
+peppyScreensaver.prototype.resolveThemeGalleryAssetPath = function (themePath, filename) {
+  if (!this.isThemeGalleryAssetName(filename)) {
+    return null;
+  }
+  var candidatePath = themePath + '/' + String(filename).trim();
+  if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+    return candidatePath;
+  }
+  return null;
+};
+
+peppyScreensaver.prototype.loadThemeMetersTxtSections = function (themeFolder) {
+  if (!themeFolder || themeFolder.indexOf('/') !== -1 || themeFolder.indexOf('..') !== -1) {
+    return null;
+  }
+  var themePath = base_folder_P + themeFolder;
+  var metersFile = themePath + '/meters.txt';
+  if (!fs.existsSync(metersFile)) {
+    return null;
+  }
+  try {
+    var metersconfig = ini.parse(fs.readFileSync(metersFile, 'utf-8'));
+    var sections = Object.keys(metersconfig);
+    var result = [];
+    var i;
+    var sectionName;
+    var section;
+    for (i = 0; i < sections.length; i++) {
+      sectionName = sections[i];
+      section = metersconfig[sectionName];
+      if (!section) {
+        continue;
+      }
+      result.push({
+        section: sectionName,
+        data: section
+      });
+    }
+    return { themePath: themePath, sections: result };
+  } catch (e) {
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.resolveThemePreviewFromMetersSection = function (themePath, sectionData, sectionName, contextLabel) {
+  var self = this;
+  var i;
+  var spec;
+  var filename;
+  var candidatePath;
+
+  for (i = 0; i < THEME_PREVIEW_METER_KEYS.length; i++) {
+    spec = THEME_PREVIEW_METER_KEYS[i];
+    filename = sectionData[spec.key];
+    if (!filename) {
+      continue;
+    }
+    candidatePath = self.resolveThemeGalleryAssetPath(themePath, filename);
+    if (candidatePath) {
+      galleryLog(self.logger, 'trace', contextLabel + ' section [' + sectionName + '] hit ' + spec.source + ' -> ' + filename);
+      return {
+        path: candidatePath,
+        source: spec.source,
+        section: sectionName
+      };
+    }
+    galleryLog(self.logger, 'verbose', contextLabel + ' section [' + sectionName + '] missing file for ' + spec.source + ': ' + String(filename).trim());
+  }
+  return null;
+};
+
+peppyScreensaver.prototype.resolveThemePreviewFromMetersTxt = function (themeFolder, scope, sectionName, contextLabel) {
+  var self = this;
+  var parsed;
+  var themePath;
+  var i;
+  var entry;
+  var resolved;
+  var label = contextLabel || ('resolveThemePreviewFromMetersTxt scope=' + scope);
+
+  parsed = self.loadThemeMetersTxtSections(themeFolder);
+  if (!parsed) {
+    galleryLog(self.logger, 'verbose', label + ' no meters.txt for ' + themeFolder);
+    return null;
+  }
+  themePath = parsed.themePath;
+
+  if (scope === 'section') {
+    if (!sectionName) {
+      galleryLog(self.logger, 'verbose', label + ' section scope requires sectionName');
+      return null;
+    }
+    for (i = 0; i < parsed.sections.length; i++) {
+      entry = parsed.sections[i];
+      if (entry.section === sectionName) {
+        resolved = self.resolveThemePreviewFromMetersSection(themePath, entry.data, entry.section, label);
+        if (resolved) {
+          galleryLog(self.logger, 'basic', label + ' [' + themeFolder + '/' + sectionName + '] -> ' + resolved.source + ' (' + path.basename(resolved.path) + ')');
+        } else {
+          galleryLog(self.logger, 'verbose', label + ' [' + themeFolder + '/' + sectionName + '] no preview asset');
+        }
+        return resolved;
+      }
+    }
+    galleryLog(self.logger, 'verbose', label + ' section [' + sectionName + '] not found in ' + themeFolder);
+    return null;
+  }
+
+  // folder scope (tier 1 fallback): first valid across sections, key priority meter.preview -> screen.bgr -> bgr.filename
+  for (i = 0; i < THEME_PREVIEW_METER_KEYS.length; i++) {
+    var keySpec = THEME_PREVIEW_METER_KEYS[i];
+    var s;
+    var sectionEntry;
+    var value;
+    for (s = 0; s < parsed.sections.length; s++) {
+      sectionEntry = parsed.sections[s];
+      value = sectionEntry.data[keySpec.key];
+      if (!value) {
+        continue;
+      }
+      resolved = self.resolveThemeGalleryAssetPath(themePath, value);
+      if (resolved) {
+        galleryLog(self.logger, 'basic', label + ' [' + themeFolder + '] tier1 fallback -> ' + keySpec.source + ' [' + sectionEntry.section + '] (' + path.basename(resolved) + ')');
+        galleryLog(self.logger, 'trace', label + ' [' + themeFolder + '] ' + keySpec.source + ' [' + sectionEntry.section + '] = ' + String(value).trim());
+        return {
+          path: resolved,
+          source: keySpec.source,
+          section: sectionEntry.section
+        };
+      }
+      galleryLog(self.logger, 'verbose', label + ' [' + themeFolder + '] missing file for ' + keySpec.source + ' [' + sectionEntry.section + ']: ' + String(value).trim());
+    }
+  }
+
+  galleryLog(self.logger, 'verbose', label + ' [' + themeFolder + '] no meters.txt preview fallback');
+  return null;
+};
+
+peppyScreensaver.prototype.resolveThemeFolderPreview = function (themeFolder, contextLabel) {
+  var self = this;
+  var themePath = base_folder_P + themeFolder;
+  var i;
+  var candidate;
+  var fileName;
+  var metersResolved;
+  var label = contextLabel || 'resolveThemeFolderPreview';
+
+  if (!themeFolder || themeFolder.indexOf('/') !== -1 || themeFolder.indexOf('..') !== -1) {
+    return null;
+  }
+
+  for (i = 0; i < THEME_PREVIEW_FILES.length; i++) {
+    fileName = THEME_PREVIEW_FILES[i];
+    candidate = themePath + '/' + fileName;
+    if (fs.existsSync(candidate)) {
+      galleryLog(self.logger, 'basic', label + ' [' + themeFolder + '] -> folder ' + fileName);
+      return {
+        path: candidate,
+        source: 'folder:' + fileName,
+        section: null
+      };
+    }
+  }
+
+  metersResolved = self.resolveThemePreviewFromMetersTxt(themeFolder, 'folder', null, label);
+  return metersResolved;
+};
+
+peppyScreensaver.prototype.resolveMeterSectionPreview = function (themeFolder, sectionName, contextLabel) {
+  return this.resolveThemePreviewFromMetersTxt(themeFolder, 'section', sectionName, contextLabel || 'resolveMeterSectionPreview');
+};
+
+peppyScreensaver.prototype.findThemePreviewFile = function (themeFolder) {
+  var resolved = this.resolveThemeFolderPreview(themeFolder, 'findThemePreviewFile');
+  return resolved ? resolved.path : null;
+};
+
+peppyScreensaver.prototype.ensureThemeGalleryCacheEntry = function (themeFolder, previewPath, cacheKeySuffix) {
+  var self = this;
+  try {
+    if (!fs.existsSync(ThemeGalleryDir)) {
+      fs.mkdirSync(ThemeGalleryDir, { recursive: true });
+    }
+    var ext = path.extname(previewPath).toLowerCase() || '.png';
+    var cacheName = themeFolder + (cacheKeySuffix || '') + ext;
+    var cachePath = ThemeGalleryDir + '/' + cacheName;
+    var srcStat = fs.statSync(previewPath);
+    if (fs.existsSync(cachePath)) {
+      var dstStat = fs.statSync(cachePath);
+      if (dstStat.mtimeMs >= srcStat.mtimeMs) {
+        galleryLog(self.logger, 'trace', 'cache hit ' + cacheName + ' <- ' + previewPath);
+        return ThemeGallerySectionPrefix + cacheName;
+      }
+    }
+    fs.copySync(previewPath, cachePath);
+    galleryLog(self.logger, 'verbose', 'cached ' + cacheName + ' <- ' + previewPath);
+    return ThemeGallerySectionPrefix + cacheName;
+  } catch (e) {
+    galleryLog(self.logger, 'verbose', 'cache failed for ' + themeFolder + ': ' + e.message);
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.ensureThemeGallerySelectPage = function (themeFolder) {
+  try {
+    if (!themeFolder || themeFolder.indexOf('/') !== -1 || themeFolder.indexOf('..') !== -1) {
+      return null;
+    }
+    if (!fs.existsSync(ThemeGalleryDir)) {
+      fs.mkdirSync(ThemeGalleryDir, { recursive: true });
+    }
+    var cacheName = themeFolder + '.select.html';
+    var cachePath = ThemeGalleryDir + '/' + cacheName;
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title></title></head><body>' +
+      '<script>(function(){var f=' + escapeThemeGalleryJsString(themeFolder) + ';' +
+      'fetch("/api/v1/pluginEndpoint",{method:"POST",headers:{"Content-Type":"application/json"},' +
+      'body:JSON.stringify({endpoint:"peppy_screensaver_theme",data:{folder:f}})})' +
+      '.catch(function(){}).finally(function(){if(window.top===window.self){window.location.href="/#/plugin/user_interface-peppy_screensaver";}});})();</script>' +
+      '</body></html>';
+    fs.writeFileSync(cachePath, html, 'utf8');
+    return ThemeGallerySectionPrefix + cacheName;
+  } catch (e) {
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.collectThemeGalleryEntries = function () {
+  var self = this;
+  var themes = [];
+  var files = fs.readdirSync(base_folder_P);
+
+  files.forEach(function (file) {
+    var folderPath = base_folder_P + file;
+    var stat = fs.statSync(folderPath);
+    if (!stat.isDirectory() || file.indexOf('_') === -1) {
+      return;
+    }
+    var resolved = self.resolveThemeFolderPreview(file, 'collectThemeGalleryEntries');
+    if (!resolved) {
+      return;
+    }
+    var previewPath = resolved.path;
+    var sectionImage = self.ensureThemeGalleryCacheEntry(file, previewPath);
+    if (!sectionImage) {
+      return;
+    }
+    var selectSectionImage = self.ensureThemeGallerySelectPage(file);
+    if (!selectSectionImage) {
+      return;
+    }
+    themes.push({
+      folder: file,
+      label: self.formatThemeShortLabel(file) + ' \u00b7 ' + self.parseThemeResolution(file),
+      shortLabel: self.formatThemeShortLabel(file),
+      resolution: self.parseThemeResolution(file),
+      sectionImage: sectionImage,
+      selectSectionImage: selectSectionImage,
+      previewSource: resolved.source,
+      previewSection: resolved.section
+    });
+  });
+
+  themes.sort(function (a, b) {
+    if (a.resolution !== b.resolution) {
+      return a.resolution.localeCompare(b.resolution, undefined, { numeric: true });
+    }
+    return a.shortLabel.localeCompare(b.shortLabel);
+  });
+
+  return themes;
+};
+
+peppyScreensaver.prototype.buildThemeGalleryHtml = function (themes, activeFolder) {
+  var self = this;
+  if (!themes.length) {
+    return '';
+  }
+
+  var activeLabel = escapeThemeGalleryHtml(self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_ACTIVE'));
+  var html = '<p>' + escapeThemeGalleryHtml(self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_SELECT_HINT')) + '</p>';
+  html += '<table align="center" width="100%" cellspacing="10" cellpadding="4">';
+  var colsPerRow = THEME_GALLERY_COLS;
+  var colWidth = Math.floor(100 / colsPerRow);
+  var currentResolution = null;
+  var firstResolution = true;
+  var rowThemes = [];
+
+  function flushRow(themesInRow, centered) {
+    var padLeft = 0;
+    var idx;
+    var theme;
+    var isActive;
+    var label;
+    var imgSrc;
+    var frameStart;
+    var frameEnd;
+
+    if (!themesInRow.length) {
+      return;
+    }
+    if (centered && themesInRow.length < colsPerRow) {
+      padLeft = Math.floor((colsPerRow - themesInRow.length) / 2);
+    }
+    html += '<tr>';
+    for (idx = 0; idx < padLeft; idx++) {
+      html += '<td width="' + colWidth + '%"></td>';
+    }
+    for (idx = 0; idx < themesInRow.length; idx++) {
+      theme = themesInRow[idx];
+      isActive = theme.folder === activeFolder;
+      label = escapeThemeGalleryHtml(theme.shortLabel);
+      imgSrc = '/albumart?sectionimage=' + theme.sectionImage;
+      frameStart = isActive ? buildThemeGalleryActiveFrameOpen() : '';
+      frameEnd = isActive ? buildThemeGalleryActiveFrameClose() : '';
+
+      html += '<td align="center" valign="top" width="' + colWidth + '%">';
+      html += frameStart;
+      html += '<img width="' + THEME_GALLERY_IMG_WIDTH + '" src="' + imgSrc + '" alt="' + label + '"/>';
+      html += '<br/>';
+      if (isActive) {
+        html += '<font color="' + THEME_GALLERY_ACTIVE_BORDER + '"><b>' + label + ' (' + activeLabel + ')</b></font>';
+      } else {
+        // target attribute is required: it makes AngularJS $location skip its
+        // same-origin link-rewriting handler, so the browser actually navigates
+        // to the select.html shim instead of routing inside the SPA.
+        html += '<a target="_self" href="/albumart?sectionimage=' + theme.selectSectionImage + '"><b>' + label + '</b></a>';
+      }
+      html += frameEnd;
+      html += '</td>';
+    }
+    for (idx = padLeft + themesInRow.length; idx < colsPerRow; idx++) {
+      html += '<td width="' + colWidth + '%"></td>';
+    }
+    html += '</tr>';
+  }
+
+  themes.forEach(function (theme) {
+    if (theme.resolution !== currentResolution) {
+      if (rowThemes.length) {
+        flushRow(rowThemes, true);
+        rowThemes = [];
+      }
+      if (!firstResolution) {
+        html += '<tr><td colspan="' + colsPerRow + '"><hr/></td></tr>';
+      }
+      firstResolution = false;
+      currentResolution = theme.resolution;
+      html += '<tr><td align="center" colspan="' + colsPerRow + '"><b>' +
+        escapeThemeGalleryHtml(currentResolution) + '</b></td></tr>';
+    }
+    rowThemes.push(theme);
+    if (rowThemes.length >= colsPerRow) {
+      flushRow(rowThemes, false);
+      rowThemes = [];
+    }
+  });
+
+  if (rowThemes.length) {
+    flushRow(rowThemes, true);
+  }
+
+  html += '</table>';
+  return html;
+};
+
+peppyScreensaver.prototype.buildThemeGalleryButtons = function () {
+  var self = this;
+  return [{
+    name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+    class: 'btn btn-link btn-sm',
+    emit: '',
+    payload: ''
+  }];
+};
+
+peppyScreensaver.prototype.applyActiveThemeFolder = function (folder) {
+  var self = this;
+
+  galleryLog(self.logger, 'basic', 'applyActiveThemeFolder called folder=' + folder);
+
+  if (!folder || folder.indexOf('/') !== -1 || folder.indexOf('..') !== -1 || folder.indexOf('_') === -1) {
+    galleryLog(self.logger, 'verbose', 'applyActiveThemeFolder rejected invalid folder');
+    return { changed: false, error: 'invalid' };
+  }
+
+  var folderPath = base_folder_P + folder;
+  if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+    return { changed: false, error: 'not_found' };
+  }
+
+  if (!fs.existsSync(PeppyConf)) {
+    return { changed: false, error: 'no_config' };
+  }
+
+  if (!spectrum_config && fs.existsSync(SpectrumConf)) {
+    spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+  }
+
+  if (peppy_config.current[meterFolderStr] === folder) {
+    galleryLog(self.logger, 'basic', 'applyActiveThemeFolder unchanged (already active)');
+    return { changed: false };
+  }
+
+  var partFile = folder.split('_');
+  var upperc = /\b([^-])/g;
+  var str_empty = fs.existsSync(folderPath + '/meters.txt') ? '' : ' (empty)';
+  var folderTitle = (partFile[1]).replace(upperc, function (c) { return c.toUpperCase(); }) + '-' + partFile[2] + ' ' + partFile[0] + str_empty;
+
+  peppy_config.current[meterFolderStr] = folder;
+  if (spectrum_config) {
+    spectrum_config.current[SpectrumFolderStr] = folder;
+  }
+  self.config.set('activeFolder', folder);
+  self.config.set('activeFolder_title', folderTitle);
+  peppy_config.current.meter = 'random';
+  self.config.set('randomSelection', '');
+  self.checkMetersFile();
+
+  var dimensions = { width: '', height: '' };
+  try {
+    var files = fs.readdirSync(folderPath);
+    files.forEach(function (file) {
+      if (file.indexOf('-ext.') >= 0) {
+        dimensions = sizeOf(folderPath + '/' + file);
+      }
+    });
+  } catch (e) {
+    self.logger.warn(id + 'applyActiveThemeFolder: could not read dimensions: ' + e.message);
+  }
+  peppy_config.current['screen.width'] = dimensions.width;
+  peppy_config.current['screen.height'] = dimensions.height;
+
+  fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, { whitespace: true }));
+  if (spectrum_config) {
+    fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, { whitespace: true }));
+  }
+  if (fs.existsSync(runFlag)) {
+    fs.removeSync(runFlag);
+  }
+
+  uiNeedsUpdate = true;
+  self.updateUIConfig();
+
+  galleryLog(self.logger, 'basic', 'applyActiveThemeFolder applied ' + folder + ' -> ' + folderTitle);
+  return { changed: true, label: folderTitle };
+};
+
+peppyScreensaver.prototype.selectThemeFromGallery = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var folder = null;
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+
+  if (typeof data === 'string') {
+    folder = data;
+  } else if (data && data.folder) {
+    folder = data.folder;
+  }
+
+  galleryLog(self.logger, 'basic', 'selectThemeFromGallery REST call folder=' + folder);
+
+  if (!folder) {
+    self.logger.warn(id + 'selectThemeFromGallery: missing folder in REST payload');
+    defer.resolve();
+    return defer.promise;
+  }
+
+  try {
+    if (fs.existsSync(PeppyConf)) {
+      peppy_config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
+      base_folder_P = peppy_config.current['base.folder'] + '/';
+      if (base_folder_P === '/') {
+        base_folder_P = PeppyPath + '/';
+      }
+    }
+    if (fs.existsSync(SpectrumConf)) {
+      spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+    }
+  } catch (e) {
+    self.logger.error(id + 'selectThemeFromGallery: failed to reload config: ' + e.message);
+    defer.resolve();
+    return defer.promise;
+  }
+
+  var result = self.applyActiveThemeFolder(folder);
+  galleryLog(self.logger, 'basic', 'selectThemeFromGallery result changed=' + result.changed + (result.error ? ' error=' + result.error : ''));
+  if (result.error === 'no_config') {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));
+  } else if (result.error) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_INVALID'));
+  } else if (!result.changed) {
+    self.commandRouter.pushToastMessage('info', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+  } else {
+    self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+  }
+
+  if (!result.error) {
+    self.commandRouter.closeModals();
+  }
+
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.showThemeGallery = function () {
+  var self = this;
+  var defer = libQ.defer();
+
+  if (!fs.existsSync(PeppyConf)) {
+    self.commandRouter.pushToastMessage(
+      'error',
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'),
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG')
+    );
+    defer.resolve();
+    return defer.promise;
+  }
+
+  try {
+    peppy_config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
+    base_folder_P = peppy_config.current['base.folder'] + '/';
+    if (base_folder_P === '/') {
+      base_folder_P = PeppyPath + '/';
+    }
+  } catch (e) {
+    self.logger.error(id + 'showThemeGallery: failed to reload config: ' + e.message);
+    defer.resolve();
+    return defer.promise;
+  }
+
+  var activeFolder = peppy_config.current[meterFolderStr];
+  galleryLog(self.logger, 'basic', 'showThemeGallery called, activeFolder=' + activeFolder + ', base=' + base_folder_P);
+  var themes = self.collectThemeGalleryEntries();
+  galleryLog(self.logger, 'basic', 'showThemeGallery collected ' + themes.length + ' theme(s)');
+  themes.forEach(function (theme) {
+    galleryLog(self.logger, 'trace', '  theme ' + theme.folder + ' preview=' + theme.previewSource + (theme.previewSection ? ' [' + theme.previewSection + ']' : ''));
+  });
+  var html = self.buildThemeGalleryHtml(themes, activeFolder);
+  if (!html) {
+    galleryLog(self.logger, 'basic', 'showThemeGallery: no themes with preview assets');
+    self.commandRouter.pushToastMessage(
+      'info',
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'),
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_NONE')
+    );
+    defer.resolve();
+    return defer.promise;
+  }
+
+  self.commandRouter.broadcastMessage('openModal', {
+    title: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_TITLE'),
+    message: html,
+    size: 'lg',
+    buttons: self.buildThemeGalleryButtons()
+  });
+
+  defer.resolve();
   return defer.promise;
 };
 
