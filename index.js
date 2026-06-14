@@ -57,6 +57,15 @@ const FANART_TV_PROJECT_KEY = '9bb4ee75161ec1245cb377bf2716b90b'; // distributab
 const FANART_TTL_MS = 14 * 24 * 60 * 60 * 1000; // refresh online results every 14 days
 const FANART_IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp'];
 const FANART_MAX_IMAGES = 30; // bound cache/CPU per artist
+// Remote handler-manifest contract (server-authoritative runtime sync for peppy_remote).
+// api/min_remote_api gate the handler/wire protocol independently of the marketing version.
+const REMOTE_API_VERSION = 1;
+const REMOTE_MIN_API_VERSION = 1;
+// Files the remote client may request. The manifest is generated live from disk, so it can
+// never drift from what actually ships; these regexes are the only trust boundary.
+const REMOTE_HANDLER_NAME_REGEX = /^(volumio_[A-Za-z0-9_]+\.py|screensaverspectrum\.py)$/;
+const REMOTE_FONT_NAME_REGEX = /^[A-Za-z0-9 ._\-]+\.(ttf|otf)$/;
+const REMOTE_CAPABILITIES = ['fanart', 'folderlayer', 'italic', 'samplerate_color', 'progress_markers', 'spectrum', 'remote'];
 const THEME_PREVIEW_FILES = ['preview.png', 'preview.jpg', 'preview.jpeg', 'art.png', 'art.jpg'];
 const THEME_GALLERY_COLS = 3;
 const THEME_GALLERY_IMG_WIDTH = 200;
@@ -531,6 +540,29 @@ peppyScreensaver.prototype.onStart = function() {
         method: 'getArtistFanart'
     });
     self.logger.info(id + 'REST endpoint registered: peppy_screensaver_artistfanart');
+
+    // Server-authoritative handler manifest for peppy_remote: lists the exact handler
+    // (.py) and font files this plugin runs, with sha256 + the API contract, so a remote
+    // can hydrate byte-identical handlers from the server it connects to (no GitHub branch
+    // coupling, no hardcoded file lists). GET/POST { endpoint: 'peppy_screensaver_manifest' }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_manifest',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getRemoteManifest'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_manifest');
+
+    // Companion file-delivery endpoint: returns a single manifest-listed handler or font
+    // as base64. Strictly whitelisted by name regex (no path traversal).
+    // POST { endpoint: 'peppy_screensaver_file', data: { kind: 'handler'|'font', name } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_file',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getRemoteFile'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_file');
     
     // Initialize config version on startup
     self.updateConfigVersion();
@@ -2227,6 +2259,129 @@ peppyScreensaver.prototype.getFont = function (data) {
     }
   } catch (err) {
     self.logger.error(id + 'getFont: ' + err.message);
+    defer.resolve({ success: false, error: err.message });
+  }
+  return defer.promise;
+};
+
+// Resolve the directory that holds the remote handler (.py) files. On an installed
+// plugin these live in screensaver/ (install.sh copies volumio_peppymeter/* there);
+// fall back to the repo layout (volumio_peppymeter/) for dev/test.
+peppyScreensaver.prototype.remoteHandlersDir = function () {
+  var installed = path.join(PluginPath, 'screensaver');
+  var devDir = path.join(PluginPath, 'volumio_peppymeter');
+  try {
+    if (fs.existsSync(installed) &&
+        fs.readdirSync(installed).some(function (f) { return REMOTE_HANDLER_NAME_REGEX.test(f); })) {
+      return installed;
+    }
+  } catch (e) {}
+  if (fs.existsSync(devDir)) {
+    return devDir;
+  }
+  return installed;
+};
+
+peppyScreensaver.prototype.remoteFontsDir = function () {
+  return path.join(PluginPath, 'screensaver', 'fonts');
+};
+
+// Build the entry list for one directory: [{ name, sha256, size }] for files matching
+// nameRegex. Hashing is cheap (handler files are small) and done on demand.
+peppyScreensaver.prototype.remoteManifestEntries = function (dir, nameRegex) {
+  var entries = [];
+  try {
+    if (!fs.existsSync(dir)) { return entries; }
+    fs.readdirSync(dir).forEach(function (f) {
+      if (!nameRegex.test(f)) { return; }
+      var fp = path.join(dir, f);
+      try {
+        var st = fs.statSync(fp);
+        if (!st.isFile()) { return; }
+        var buf = fs.readFileSync(fp);
+        entries.push({
+          name: f,
+          sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+          size: st.size
+        });
+      } catch (e) {}
+    });
+  } catch (e) {}
+  entries.sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+  return entries;
+};
+
+// HTTP endpoint: server-authoritative manifest of handler + font files this plugin runs.
+// Generated live from disk (cannot drift from what ships). Lets peppy_remote pull the exact
+// handler set the connected server uses, hash-verified, instead of guessing from a branch.
+// POST/GET { endpoint: 'peppy_screensaver_manifest' }
+peppyScreensaver.prototype.getRemoteManifest = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  try {
+    var handlers = self.remoteManifestEntries(self.remoteHandlersDir(), REMOTE_HANDLER_NAME_REGEX);
+    var fonts = self.remoteManifestEntries(self.remoteFontsDir(), REMOTE_FONT_NAME_REGEX);
+    defer.resolve({
+      success: true,
+      plugin_version: peppyPluginVersion,
+      api: REMOTE_API_VERSION,
+      min_remote_api: REMOTE_MIN_API_VERSION,
+      capabilities: REMOTE_CAPABILITIES,
+      handlers: handlers,
+      fonts: fonts
+    });
+  } catch (err) {
+    self.logger.error(id + 'getRemoteManifest: ' + err.message);
+    defer.resolve({ success: false, error: err.message });
+  }
+  return defer.promise;
+};
+
+// HTTP endpoint: deliver one manifest-listed handler or font as base64, with sha256 so the
+// client can verify integrity before use. Strictly whitelisted by name regex.
+// POST { endpoint: 'peppy_screensaver_file', data: { kind: 'handler'|'font', name } }
+peppyScreensaver.prototype.getRemoteFile = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var kind = (data && typeof data.kind === 'string') ? data.kind : 'handler';
+  var name = (data && typeof data.name === 'string') ? data.name : '';
+  if (!name || name.indexOf('/') !== -1 || name.indexOf('\\') !== -1 || name.indexOf('..') !== -1) {
+    defer.resolve({ success: false, error: 'invalid name' });
+    return defer.promise;
+  }
+  try {
+    var filePath = null;
+    if (kind === 'font') {
+      if (!REMOTE_FONT_NAME_REGEX.test(name)) {
+        defer.resolve({ success: false, error: 'invalid font name' });
+        return defer.promise;
+      }
+      var themeFonts = path.join(process.env.VOLUMIO_ACTIVE_UI_PATH || '/volumio/http/www', 'app', 'themes', 'volumio3', 'assets', 'variants', 'volumio', 'fonts', name);
+      var pluginFonts = path.join(self.remoteFontsDir(), name);
+      if (fs.existsSync(themeFonts)) { filePath = themeFonts; }
+      else if (fs.existsSync(pluginFonts)) { filePath = pluginFonts; }
+    } else {
+      if (!REMOTE_HANDLER_NAME_REGEX.test(name)) {
+        defer.resolve({ success: false, error: 'invalid handler name' });
+        return defer.promise;
+      }
+      var hp = path.join(self.remoteHandlersDir(), name);
+      if (fs.existsSync(hp)) { filePath = hp; }
+    }
+    if (!filePath) {
+      defer.resolve({ success: false, error: 'not found' });
+      return defer.promise;
+    }
+    var buf = fs.readFileSync(filePath, { encoding: null });
+    defer.resolve({
+      success: true,
+      kind: kind,
+      name: name,
+      sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+      data: buf.toString('base64')
+    });
+  } catch (err) {
+    self.logger.error(id + 'getRemoteFile: ' + err.message);
     defer.resolve({ success: false, error: err.message });
   }
   return defer.promise;
