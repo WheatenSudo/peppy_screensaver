@@ -56,6 +56,9 @@ After installation, enable and configure the plugin:
 - Cassette deck skins with rotating reel animation
 - Track info overlay with scrolling text
 - Optional ticker (single continuously looping line: artist · title · album) per theme in meters.txt
+- Theme gallery: browse preview thumbnails and remove installed themes
+- Optional decorative image from the track folder (back/logo art)
+- Artist fanart slideshow (personal art / local fanart / fanart.tv / Volumio, per-track or timed)
 - Display persistence during pause/track changes (eliminates flicker)
 - Random meter rotation
 - Touch to exit
@@ -114,6 +117,20 @@ After editing a file via SMB, that file becomes owned by `nobody:nogroup`. Until
 4. SSH/SFTP access is now fully restored for all template files
 
 When disabled, template folders revert to standard permissions (`755` directories, `644` files) — writable only by the `volumio` user via SSH/SFTP.
+
+### Themes & Artwork
+
+Browse and manage meter themes, and configure the artist fanart slideshow. A single **Apply** button saves the fanart settings and removes a theme only when one is explicitly selected (the remove dropdown defaults to *— none —*).
+
+| Setting | Description |
+|---------|-------------|
+| Browse themes | Opens a gallery of preview images for installed themes; click a theme name to apply it |
+| Theme to remove | Delete an installed theme from both the meter and spectrum templates (with confirmation). Built-in themes return on plugin update/reinstall |
+| Artist fanart slideshow | Master switch for the artist fanart slideshow (default Off) |
+| Personal fanart.tv key | Optional personal fanart.tv API key (sent as your client key); blank uses the built-in project key |
+| Fanart change interval | Seconds between automatic fanart changes; `0` = change only on track change |
+
+The fanart slideshow appears only when this master switch is **on** *and* the active theme declares a fanart area (`fanart.pos` / `fanart.dimension` in `meters.txt`). Images are resolved from a cascade: your personal artist-art folder → a `fanart` subfolder next to the track → fanart.tv (via MusicBrainz) → Volumio's artist art proxy. See the [wiki: Plugin Settings](https://github.com/foonerd/peppy_screensaver/wiki/Plugin-Settings#themes--artwork) and [meters.txt reference](https://github.com/foonerd/peppy_screensaver/wiki/meters.txt-Reference#artist-fanart-slideshow-artist-photos--backgrounds).
 
 ### VU-Meter Settings
 
