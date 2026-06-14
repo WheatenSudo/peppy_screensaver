@@ -327,6 +327,7 @@ FONTSIZE_LIGHT = "font.size.light"
 FONTSIZE_REGULAR = "font.size.regular"
 FONTSIZE_BOLD = "font.size.bold"
 FONTSIZE_DIGI = "font.size.digi"
+FONTSIZE_ITALIC = "font.size.italic"  # optional; defaults to font.size.regular
 FONTCOLOR = "font.color"
 
 SPECTRUM_VISIBLE = "spectrum.visible"
@@ -1498,6 +1499,12 @@ class Volumio_ConfigFileParser(object):
             d[FONTSIZE_DIGI] = config_file.getint(section, FONTSIZE_DIGI)
         except:
             d[FONTSIZE_DIGI] = 40
+        try:
+            # Italic gets its own size bucket; defaults to the regular size when unset
+            # (so existing skins are unchanged).
+            d[FONTSIZE_ITALIC] = config_file.getint(section, FONTSIZE_ITALIC)
+        except:
+            d[FONTSIZE_ITALIC] = d[FONTSIZE_REGULAR]
         try:
             spl = config_file.get(section, FONTCOLOR).split(',')
             d[FONTCOLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))
