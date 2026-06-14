@@ -50,7 +50,7 @@ from volumio_configfileparser import (
     EXTENDED_CONF,
     ROTATION_QUALITY, ROTATION_FPS, ROTATION_SPEED, SMOOTH_ROTATION,  # SMOOTH_ROTATION: rollback remove from import
     REEL_DIRECTION, QUEUE_MODE,
-    FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD,
+    FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD, FONT_ITALIC,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
     PLAY_TXT_CENTER, PLAY_CENTER, PLAY_MAX,
@@ -71,7 +71,7 @@ from volumio_configfileparser import (
     TIME_ELAPSED_POS, TIME_ELAPSED_COLOR, TIME_ELAPSED_STYLE, TIME_ELAPSED_FONT, TIME_ELAPSED_FONTSIZE,
     TIME_TOTAL_POS, TIME_TOTAL_COLOR, TIME_TOTAL_STYLE, TIME_TOTAL_FONT, TIME_TOTAL_FONTSIZE,
     FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTCOLOR,
-    FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L,
+    FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L, FONT_STYLE_I,
     METER_DELAY,
     FOLDERLAYER_ENABLED, FOLDERLAYER_FILES, FOLDERLAYER_POS, FOLDERLAYER_DIM,
     FOLDERLAYER_SCALE, FOLDERLAYER_ZORDER
@@ -1940,6 +1940,7 @@ class TurntableHandler:
         self.fontL = None
         self.fontR = None
         self.fontB = None
+        self.fontI = None
         self.fontDigi = None
         self.sample_font = None
         
@@ -2491,6 +2492,15 @@ class TurntableHandler:
         else:
             self.fontB = pg.font.SysFont("DejaVuSans", size_bold, bold=True)
             log_debug(f"  Font bold: SysFont DejaVuSans (fallback, file={bold_file})", "basic")
+
+        # Italic font (regular-weight slant); falls back to regular when unavailable
+        italic_file = self.global_config.get(FONT_ITALIC)
+        if italic_file and os.path.exists(font_path + italic_file):
+            self.fontI = pg.font.Font(font_path + italic_file, size_regular)
+            log_debug(f"  Font italic: {font_path + italic_file}", "basic")
+        else:
+            self.fontI = self.fontR
+            log_debug(f"  Font italic: fallback to regular (file={italic_file})", "basic")
         
         # Digital font for time (default; used when per-field font/size not set)
         default_digi_path = os.path.join(os.path.dirname(__file__), 'fonts', 'DSEG7Classic-Italic.ttf')
@@ -2563,6 +2573,8 @@ class TurntableHandler:
             return self.fontB
         elif style == FONT_STYLE_R:
             return self.fontR
+        elif style == FONT_STYLE_I:
+            return self.fontI
         else:
             return self.fontL
     

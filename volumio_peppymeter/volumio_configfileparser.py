@@ -19,6 +19,7 @@ FONT_PATH = "font.path"
 FONT_LIGHT = "font.light"
 FONT_REGULAR = "font.regular"
 FONT_BOLD = "font.bold"
+FONT_ITALIC = "font.italic"
 USE_SYSTEM_FONTS = "use.system.fonts"
 
 POSITION_TYPE = "position.type"
@@ -313,6 +314,7 @@ TIME_TOTAL_FONTSIZE = "time.total.fontsize"
 FONT_STYLE_B = "bold"
 FONT_STYLE_R = "regular"
 FONT_STYLE_L = "light"
+FONT_STYLE_I = "italic"
 FONTSIZE_LIGHT = "font.size.light"
 FONTSIZE_REGULAR = "font.size.regular"
 FONTSIZE_BOLD = "font.size.bold"
@@ -534,6 +536,10 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio[FONT_BOLD] = c.get(CURRENT, FONT_BOLD)
         except:
             self.meter_config_volumio[FONT_BOLD] = None
+        try:
+            self.meter_config_volumio[FONT_ITALIC] = c.get(CURRENT, FONT_ITALIC)
+        except:
+            self.meter_config_volumio[FONT_ITALIC] = None
 
         # PeppyFont override: when use.system.fonts is False (default), replace
         # font paths with built-in PeppyFont files for universal language coverage
@@ -553,6 +559,9 @@ class Volumio_ConfigFileParser(object):
                 self.meter_config_volumio[FONT_LIGHT] = os.path.join(_fonts_dir, 'PeppyFont-Light.ttf')
                 self.meter_config_volumio[FONT_REGULAR] = _peppy_regular
                 self.meter_config_volumio[FONT_BOLD] = os.path.join(_fonts_dir, 'PeppyFont-Bold.ttf')
+                _peppy_italic = os.path.join(_fonts_dir, 'PeppyFont-Italic.ttf')
+                if os.path.exists(_peppy_italic):
+                    self.meter_config_volumio[FONT_ITALIC] = _peppy_italic
 
         try:
             self.meter_config_volumio[METER_BKP] = self.meter_config[METER]
