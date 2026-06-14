@@ -741,8 +741,11 @@ peppyScreensaver.prototype.getUIConfig = function() {
             uiconf.sections[1].content[1].value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE');
             // Artwork: artist fanart slideshow controls (Item 6)
             uiconf.sections[1].content[2].value = self.config.get('fanartEnabled') === true;
-            uiconf.sections[1].content[3].value = self.config.get('fanart_personal_key') || '';
-            uiconf.sections[1].content[4].value = parseInt(self.config.get('fanartInterval'), 10) || 0;
+            var fanartKeyMode = self.config.get('fanartKeyMode') || 'personal';
+            uiconf.sections[1].content[3].value.value = fanartKeyMode;
+            uiconf.sections[1].content[3].value.label = self.commandRouter.getI18nString(fanartKeyMode === 'project' ? 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT' : 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL');
+            uiconf.sections[1].content[4].value = self.config.get('fanart_personal_key') || '';
+            uiconf.sections[1].content[5].value = parseInt(self.config.get('fanartInterval'), 10) || 0;
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
@@ -2448,11 +2451,8 @@ peppyScreensaver.prototype.fanartResolveMBID = async function (artist) {
   return mbid;
 };
 
-peppyScreensaver.prototype.fanartFetchFanartTv = async function (mbid, personalKey) {
-  var url = 'https://webservice.fanart.tv/v3/music/' + encodeURIComponent(mbid) + '?api_key=' + FANART_TV_PROJECT_KEY;
-  if (personalKey) {
-    url += '&client_key=' + encodeURIComponent(personalKey);
-  }
+peppyScreensaver.prototype.fanartFetchFanartTv = async function (mbid, apiKey) {
+  var url = 'https://webservice.fanart.tv/v3/music/' + encodeURIComponent(mbid) + '?api_key=' + encodeURIComponent(apiKey || FANART_TV_PROJECT_KEY);
   var body = await fanartHttpsGetText(url, { 'Accept': 'application/json' }, 10000);
   var json = JSON.parse(body);
   var urls = [];
@@ -2535,17 +2535,28 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
       }
     }
 
-    // Tier 3: fanart.tv full set (MBID via MusicBrainz)
+    // Tier 3: fanart.tv full set (MBID via MusicBrainz). Key mode decides which
+    // api_key is used: 'project' = built-in key (testing/development only),
+    // 'personal' = the listener's own fanart.tv key (required; skipped if blank).
     if (!picked.length) {
-      var mbid = await self.fanartResolveMBID(artist);
-      if (mbid) {
-        var personalKey = '';
-        try { personalKey = (self.config.get('fanart_personal_key') || '').trim(); } catch (e) {}
-        var urls = await self.fanartFetchFanartTv(mbid, personalKey);
-        if (urls.length) {
-          source = 'fanart.tv';
-          picked = urls.map(function (u) { return { type: 'url', url: u }; });
+      var keyMode = self.config.get('fanartKeyMode') || 'personal';
+      var apiKey = '';
+      if (keyMode === 'project') {
+        apiKey = FANART_TV_PROJECT_KEY;
+      } else {
+        try { apiKey = (self.config.get('fanart_personal_key') || '').trim(); } catch (e) {}
+      }
+      if (apiKey) {
+        var mbid = await self.fanartResolveMBID(artist);
+        if (mbid) {
+          var urls = await self.fanartFetchFanartTv(mbid, apiKey);
+          if (urls.length) {
+            source = 'fanart.tv';
+            picked = urls.map(function (u) { return { type: 'url', url: u }; });
+          }
         }
+      } else {
+        galleryLog(self.logger, 'verbose', 'fanart.tv skipped: personal key mode with no key set');
       }
     }
 
@@ -3178,12 +3189,17 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
 
   try {
     var enabled = (data && (data.fanartEnabled === true || data.fanartEnabled === 'true'));
+    var keyMode = (data && data.fanartKeyMode && typeof data.fanartKeyMode === 'object')
+      ? data.fanartKeyMode.value
+      : (data && data.fanartKeyMode);
+    if (keyMode !== 'project') { keyMode = 'personal'; }
     var key = (data && typeof data.fanart_personal_key === 'string') ? data.fanart_personal_key.trim() : '';
     var interval = parseInt(data && data.fanartInterval, 10);
     if (isNaN(interval) || interval < 0) { interval = 0; }
     if (interval > 3600) { interval = 3600; }
 
     self.config.set('fanartEnabled', enabled);
+    self.config.set('fanartKeyMode', keyMode);
     self.config.set('fanart_personal_key', key);
     self.config.set('fanartInterval', interval);
 

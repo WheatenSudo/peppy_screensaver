@@ -127,7 +127,8 @@ Browse and manage meter themes, and configure the artist fanart slideshow. A sin
 | Browse themes | Opens a gallery of preview images for installed themes; click a theme name to apply it |
 | Theme to remove | Delete an installed theme from both the meter and spectrum templates (with confirmation). Built-in themes return on plugin update/reinstall |
 | Artist fanart slideshow | Master switch for the artist fanart slideshow (default Off) |
-| Personal fanart.tv key | Optional personal fanart.tv API key (sent as your client key); blank uses the built-in project key |
+| fanart.tv key | Personal (default) uses your own key as the api_key; Project uses the built-in key (testing/development only) |
+| Personal fanart.tv key | Your own fanart.tv API key; required when key mode is Personal (blank skips the fanart.tv tier) |
 | Fanart change interval | Seconds between automatic fanart changes; `0` = change only on track change |
 
 The fanart slideshow appears only when this master switch is **on** *and* the active theme declares a fanart area (`fanart.pos` / `fanart.dimension` in `meters.txt`). Images are resolved from a cascade: your personal artist-art folder → a `fanart` subfolder next to the track → fanart.tv (via MusicBrainz) → Volumio's artist art proxy. See the [wiki: Plugin Settings](https://github.com/foonerd/peppy_screensaver/wiki/Plugin-Settings#themes--artwork) and [meters.txt reference](https://github.com/foonerd/peppy_screensaver/wiki/meters.txt-Reference#artist-fanart-slideshow-artist-photos--backgrounds).

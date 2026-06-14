@@ -289,6 +289,7 @@
                               "data": [
                                       "themeToRemove",
                                       "fanartEnabled",
+                                      "fanartKeyMode",
                                       "fanart_personal_key",
                                       "fanartInterval"
                                       ]
@@ -319,6 +320,18 @@
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ENABLE_DOC",
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ENABLE_LABEL",
                              "value": false
+                            },
+                            {
+                             "id": "fanartKeyMode",
+                             "element": "select",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_KEY_MODE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_KEY_MODE_LABEL",
+                             "value": {"value": "personal", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL"},
+                             "options": [
+                                          {"value": "personal", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL"},
+                                          {"value": "project", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT"}
+                                        ]
                             },
                             {
                              "id": "fanart_personal_key",

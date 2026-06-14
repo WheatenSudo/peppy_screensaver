@@ -75,6 +75,10 @@
     "value": false,
     "type": "boolean"
   },
+  "fanartKeyMode": {
+    "value": "personal",
+    "type": "string"
+  },
   "fanart_personal_key": {
     "value": "",
     "type": "string"
