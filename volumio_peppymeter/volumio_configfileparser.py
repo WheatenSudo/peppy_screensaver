@@ -107,6 +107,11 @@ FOLDERLAYER_POS = "folderlayer.pos"
 FOLDERLAYER_DIM = "folderlayer.dimension"
 FOLDERLAYER_SCALE = "folderlayer.scale"
 FOLDERLAYER_ZORDER = "folderlayer.zorder"
+# Artist fanart slideshow slot (Item 6) - geometry only; cadence/key live in plugin UI
+FANART_POS = "fanart.pos"
+FANART_DIM = "fanart.dimension"
+FANART_SCALE = "fanart.scale"
+FANART_ZORDER = "fanart.zorder"
 
 # Reel configuration constants (for cassette skins)
 REEL_LEFT_FILE = "reel.left.filename"
@@ -652,6 +657,27 @@ class Volumio_ConfigFileParser(object):
             d[FOLDERLAYER_ZORDER] = config_file.get(section, FOLDERLAYER_ZORDER).strip().lower()
         except:
             d[FOLDERLAYER_ZORDER] = "overlay"  # 'overlay' (above meters) or 'background' (behind meters)
+
+        # --- Artist fanart slideshow slot (Item 6): geometry in meters.txt; the slot's
+        # presence here enables it (cadence/personal key come from plugin settings) ---
+        try:
+            spl = config_file.get(section, FANART_POS).split(',')
+            d[FANART_POS] = (int(spl[0]), int(spl[1]))
+        except:
+            d[FANART_POS] = None
+        try:
+            spl = config_file.get(section, FANART_DIM).split(',')
+            d[FANART_DIM] = (int(spl[0]), int(spl[1]))
+        except:
+            d[FANART_DIM] = None
+        try:
+            d[FANART_SCALE] = config_file.get(section, FANART_SCALE).strip().lower()
+        except:
+            d[FANART_SCALE] = "fit"  # 'fit' (preserve aspect) or 'stretch'
+        try:
+            d[FANART_ZORDER] = config_file.get(section, FANART_ZORDER).strip().lower()
+        except:
+            d[FANART_ZORDER] = "background"  # 'background' (behind meters) or 'overlay'
 
         # --- Reel configuration (for cassette skins) ---
         try:
