@@ -71,13 +71,19 @@ from volumio_configfileparser import (
     FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTCOLOR,
     FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L, FONT_STYLE_I,
     FOLDERLAYER_ENABLED, FOLDERLAYER_FILES, FOLDERLAYER_POS, FOLDERLAYER_DIM,
-    FOLDERLAYER_SCALE, FOLDERLAYER_ZORDER
+    FOLDERLAYER_SCALE, FOLDERLAYER_ZORDER,
+    FANART_POS, FANART_DIM, FANART_SCALE, FANART_ZORDER
 )
 
 try:
     from volumio_folderimage import FolderImageRenderer
 except ImportError:
     FolderImageRenderer = None
+
+try:
+    from volumio_artistfanart import FanartSlideshowRenderer
+except ImportError:
+    FanartSlideshowRenderer = None
 
 # Reel configuration constants
 try:
@@ -1034,6 +1040,10 @@ class CassetteHandler:
         self.folder_renderer = None
         self.folderlayer_rect = None
         self.folderlayer_zorder = "overlay"
+        # Artist fanart slideshow (Item 6)
+        self.fanart_renderer = None
+        self.fanart_rect = None
+        self.fanart_zorder = "background"
         
         # Caches
         self.last_time_str = ""
@@ -1308,6 +1318,24 @@ class CassetteHandler:
                     filenames=mc_vol.get(FOLDERLAYER_FILES),
                 )
                 log_debug("  FolderImageRenderer created (zorder=" + self.folderlayer_zorder + ")", "verbose")
+
+        # Create artist fanart slideshow renderer (Item 6): slot presence enables it
+        self.fanart_renderer = None
+        self.fanart_rect = None
+        self.fanart_zorder = "background"
+        if FanartSlideshowRenderer is not None:
+            fa_pos = mc_vol.get(FANART_POS)
+            fa_dim = mc_vol.get(FANART_DIM)
+            if fa_pos and fa_dim:
+                self.fanart_zorder = (mc_vol.get(FANART_ZORDER) or "background")
+                self.fanart_rect = pg.Rect(fa_pos[0], fa_pos[1], fa_dim[0], fa_dim[1])
+                self.fanart_renderer = FanartSlideshowRenderer(
+                    pos=fa_pos,
+                    dim=fa_dim,
+                    scale_mode=mc_vol.get(FANART_SCALE) or "fit",
+                    cadence="track",
+                )
+                log_debug("  FanartSlideshowRenderer created (zorder=" + self.fanart_zorder + ")", "verbose")
         
         # Create reel renderers
         self.reel_left = None
@@ -1863,6 +1891,12 @@ class CassetteHandler:
         if self.folder_renderer:
             self.folder_renderer.set_volumio_url(meta.get("_volumio_url") or "http://localhost:3000")
             folder_key_changed = self.folder_renderer.update_for_track(meta.get("uri", "") or "")
+
+        # Pre-calculate artist fanart state (Item 6): refresh on artist change, advance per track
+        fanart_changed = False
+        if self.fanart_renderer:
+            self.fanart_renderer.set_volumio_url(meta.get("_volumio_url") or "http://localhost:3000")
+            fanart_changed = self.fanart_renderer.update_for_track(meta.get("artist", "") or "", meta.get("uri", "") or "")
         
         # =================================================================
         # LAYER COMPOSITION: Clear and render in z-order
@@ -1898,6 +1932,10 @@ class CassetteHandler:
         # Folder image (background z-order) needs clearing when the track folder changed
         if self.folder_renderer and self.folderlayer_zorder == "background" and folder_key_changed and self.folderlayer_rect:
             clear_regions.append(self.folderlayer_rect)
+
+        # Artist fanart (background z-order) needs clearing when the displayed image changed
+        if self.fanart_renderer and self.fanart_zorder == "background" and fanart_changed and self.fanart_rect:
+            clear_regions.append(self.fanart_rect)
         
         # Clear all dirty regions from background
         if clear_regions and self.bgr_surface:
@@ -1948,6 +1986,14 @@ class CassetteHandler:
             if folder_key_changed or (force_flag and overlaps_cleared(self.folderlayer_rect)):
                 self.folder_renderer.force_redraw()
                 rect = self.folder_renderer.render(self.screen)
+                if rect:
+                    dirty_rects.append(rect)
+
+        # LAYER 3c: Artist fanart (background z-order) - BEFORE meters, like album art
+        if self.fanart_renderer and self.fanart_zorder == "background" and self.fanart_renderer.has_image():
+            if fanart_changed or (force_flag and overlaps_cleared(self.fanart_rect)):
+                self.fanart_renderer.force_redraw()
+                rect = self.fanart_renderer.render(self.screen)
                 if rect:
                     dirty_rects.append(rect)
         
@@ -2324,6 +2370,21 @@ class CassetteHandler:
                 if rect:
                     dirty_rects.append(rect)
 
+        # LAYER 8c: Artist fanart (overlay z-order) - above dynamic content, below foreground
+        if self.fanart_renderer and self.fanart_zorder == "overlay" and self.fanart_renderer.has_image():
+            fa_rect = self.fanart_renderer.get_backing_rect()
+            need_fa = self.fanart_renderer._need_first_blit
+            if not need_fa and fa_rect:
+                for d in dirty_rects:
+                    if d and fa_rect.colliderect(d):
+                        need_fa = True
+                        break
+            if need_fa:
+                self.fanart_renderer.force_redraw()
+                rect = self.fanart_renderer.render(self.screen)
+                if rect:
+                    dirty_rects.append(rect)
+
         # LAYER 9: Foreground mask
         if self.fgr_surf and dirty_rects:
             fgr_x, fgr_y = self.fgr_pos
@@ -2351,6 +2412,7 @@ class CassetteHandler:
         self.reel_right = None
         self.album_renderer = None
         self.folder_renderer = None
+        self.fanart_renderer = None
         self.indicator_renderer = None
         self.artist_scroller = None
         self.title_scroller = None
