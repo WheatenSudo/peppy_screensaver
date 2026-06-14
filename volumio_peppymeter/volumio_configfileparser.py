@@ -107,6 +107,9 @@ FOLDERLAYER_POS = "folderlayer.pos"
 FOLDERLAYER_DIM = "folderlayer.dimension"
 FOLDERLAYER_SCALE = "folderlayer.scale"
 FOLDERLAYER_ZORDER = "folderlayer.zorder"
+FOLDERLAYERS = "folderlayers"   # parsed list of folder-image layer dicts (multi-layer)
+FOLDERLAYER_MAX = 5             # max indexed folderlayer.N.* layers (plus the legacy one)
+FOLDERLAYER_DEFAULT_FILES = ["back.png", "Back.png", "back.jpg", "Back.jpg", "logo.png", "Logo.png"]
 # Artist fanart slideshow slot (Item 6) - geometry only; cadence/key live in plugin UI
 FANART_POS = "fanart.pos"
 FANART_DIM = "fanart.dimension"
@@ -629,34 +632,52 @@ class Volumio_ConfigFileParser(object):
         except:
             d[ALBUMART_ROT_SPEED] = 0.0  # default: no rotation
 
-        # --- Extra folder-image layer (Item 5): decorative image from the track's folder ---
+        # --- Folder-image layers (Item 5): decorative images from the playing track's
+        # folder (e.g. back cover + band logo). Supports the legacy single 'folderlayer.*'
+        # (kept for backward compatibility, requires folderlayer.enabled = True) plus
+        # indexed 'folderlayer.N.*' (N = 1..FOLDERLAYER_MAX), each with its own files/
+        # position/size/scale/z-order. An indexed layer is enabled simply by declaring its
+        # .pos and .dimension (same slot-presence model as the fanart layer). ---
+        _fl_prefixes = []
         try:
-            d[FOLDERLAYER_ENABLED] = config_file.getboolean(section, FOLDERLAYER_ENABLED)
+            if config_file.getboolean(section, FOLDERLAYER_ENABLED):
+                _fl_prefixes.append("folderlayer")
         except:
-            d[FOLDERLAYER_ENABLED] = False
-        try:
-            _fl_files = config_file.get(section, FOLDERLAYER_FILES)
-            d[FOLDERLAYER_FILES] = [f.strip() for f in _fl_files.split(',') if f.strip()]
-        except:
-            d[FOLDERLAYER_FILES] = ["back.png", "Back.png", "back.jpg", "Back.jpg", "logo.png", "Logo.png"]
-        try:
-            spl = config_file.get(section, FOLDERLAYER_POS).split(',')
-            d[FOLDERLAYER_POS] = (int(spl[0]), int(spl[1]))
-        except:
-            d[FOLDERLAYER_POS] = None
-        try:
-            spl = config_file.get(section, FOLDERLAYER_DIM).split(',')
-            d[FOLDERLAYER_DIM] = (int(spl[0]), int(spl[1]))
-        except:
-            d[FOLDERLAYER_DIM] = None
-        try:
-            d[FOLDERLAYER_SCALE] = config_file.get(section, FOLDERLAYER_SCALE).strip().lower()
-        except:
-            d[FOLDERLAYER_SCALE] = "fit"  # 'fit' (best-fit, keep aspect) or 'stretch'
-        try:
-            d[FOLDERLAYER_ZORDER] = config_file.get(section, FOLDERLAYER_ZORDER).strip().lower()
-        except:
-            d[FOLDERLAYER_ZORDER] = "overlay"  # 'overlay' (above meters) or 'background' (behind meters)
+            pass
+        for _i in range(1, FOLDERLAYER_MAX + 1):
+            _fl_prefixes.append("folderlayer." + str(_i))
+        _folderlayers = []
+        for _pfx in _fl_prefixes:
+            try:
+                spl = config_file.get(section, _pfx + ".pos").split(',')
+                _fl_pos = (int(spl[0]), int(spl[1]))
+            except:
+                _fl_pos = None
+            try:
+                spl = config_file.get(section, _pfx + ".dimension").split(',')
+                _fl_dim = (int(spl[0]), int(spl[1]))
+            except:
+                _fl_dim = None
+            if not _fl_pos or not _fl_dim:
+                continue  # a layer needs both pos and dimension to exist
+            try:
+                _fl_raw = config_file.get(section, _pfx + ".files")
+                _fl_files = [f.strip() for f in _fl_raw.split(',') if f.strip()]
+            except:
+                _fl_files = list(FOLDERLAYER_DEFAULT_FILES)
+            try:
+                _fl_scale = config_file.get(section, _pfx + ".scale").strip().lower()
+            except:
+                _fl_scale = "fit"  # 'fit' (best-fit, keep aspect) or 'stretch'
+            try:
+                _fl_zorder = config_file.get(section, _pfx + ".zorder").strip().lower()
+            except:
+                _fl_zorder = "overlay"  # 'overlay' (above meters) or 'background' (behind meters)
+            _folderlayers.append({
+                "files": _fl_files, "pos": _fl_pos, "dim": _fl_dim,
+                "scale": _fl_scale, "zorder": _fl_zorder,
+            })
+        d[FOLDERLAYERS] = _folderlayers
 
         # --- Artist fanart slideshow slot (Item 6): geometry in meters.txt; the slot's
         # presence here enables it (cadence/personal key come from plugin settings) ---

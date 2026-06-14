@@ -66,8 +66,7 @@ from volumio_configfileparser import (
     TIME_TOTAL_POS, TIME_TOTAL_COLOR, TIME_TOTAL_STYLE, TIME_TOTAL_FONT, TIME_TOTAL_FONTSIZE,
     FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTCOLOR,
     FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L, FONT_STYLE_I,
-    FOLDERLAYER_ENABLED, FOLDERLAYER_FILES, FOLDERLAYER_POS, FOLDERLAYER_DIM,
-    FOLDERLAYER_SCALE, FOLDERLAYER_ZORDER,
+    FOLDERLAYERS,
     FANART_POS, FANART_DIM, FANART_SCALE, FANART_ZORDER
 )
 
@@ -730,10 +729,8 @@ class BasicHandler:
         self.enabled = False
         self.bgr_surface = None  # Layer composition: static background
         self.dirty_rects = []
-        # Extra folder-image layer (Item 5)
-        self.folder_renderer = None
-        self.folderlayer_rect = None
-        self.folderlayer_zorder = "overlay"
+        # Folder-image layers (Item 5): list of {r, rect, zorder, changed}
+        self.folder_layers = []
         # Artist fanart slideshow (Item 6)
         self.fanart_renderer = None
         self.fanart_rect = None
@@ -1030,23 +1027,28 @@ class BasicHandler:
             )
             log_debug("  AlbumArtRenderer created (static)", "verbose")
 
-        # Create folder-image renderer (Item 5): decorative image from the track's folder
-        self.folder_renderer = None
-        self.folderlayer_rect = None
-        self.folderlayer_zorder = "overlay"
-        if FolderImageRenderer is not None and mc_vol.get(FOLDERLAYER_ENABLED):
-            fl_pos = mc_vol.get(FOLDERLAYER_POS)
-            fl_dim = mc_vol.get(FOLDERLAYER_DIM)
-            if fl_pos and fl_dim:
-                self.folderlayer_zorder = (mc_vol.get(FOLDERLAYER_ZORDER) or "overlay")
-                self.folderlayer_rect = pg.Rect(fl_pos[0], fl_pos[1], fl_dim[0], fl_dim[1])
-                self.folder_renderer = FolderImageRenderer(
-                    pos=fl_pos,
-                    dim=fl_dim,
-                    scale_mode=mc_vol.get(FOLDERLAYER_SCALE) or "fit",
-                    filenames=mc_vol.get(FOLDERLAYER_FILES),
-                )
-                log_debug("  FolderImageRenderer created (zorder=" + self.folderlayer_zorder + ")", "verbose")
+        # Create folder-image layers (Item 5): one renderer per configured layer
+        # (legacy folderlayer.* and/or indexed folderlayer.N.*).
+        self.folder_layers = []
+        if FolderImageRenderer is not None:
+            for fl_cfg in (mc_vol.get(FOLDERLAYERS) or []):
+                fl_pos = fl_cfg.get("pos")
+                fl_dim = fl_cfg.get("dim")
+                if not fl_pos or not fl_dim:
+                    continue
+                self.folder_layers.append({
+                    "r": FolderImageRenderer(
+                        pos=fl_pos,
+                        dim=fl_dim,
+                        scale_mode=fl_cfg.get("scale") or "fit",
+                        filenames=fl_cfg.get("files"),
+                    ),
+                    "rect": pg.Rect(fl_pos[0], fl_pos[1], fl_dim[0], fl_dim[1]),
+                    "zorder": (fl_cfg.get("zorder") or "overlay"),
+                    "changed": False,
+                })
+            if self.folder_layers:
+                log_debug("  FolderImageRenderer x" + str(len(self.folder_layers)) + " created", "verbose")
 
         # Create artist fanart slideshow renderer (Item 6): slot presence enables it
         self.fanart_renderer = None
@@ -1397,11 +1399,13 @@ class BasicHandler:
         if self.album_renderer:
             album_url_changed = albumart != self.album_renderer._current_url
 
-        # Pre-calculate folder-image state (Item 5): refresh on track-folder change
-        folder_key_changed = False
-        if self.folder_renderer:
-            self.folder_renderer.set_volumio_url(meta.get("_volumio_url") or "http://localhost:3000")
-            folder_key_changed = self.folder_renderer.update_for_track(meta.get("uri", "") or "")
+        # Pre-calculate folder-image state (Item 5): refresh each layer on track-folder change
+        if self.folder_layers:
+            _fl_url = meta.get("_volumio_url") or "http://localhost:3000"
+            _fl_uri = meta.get("uri", "") or ""
+            for _fl in self.folder_layers:
+                _fl["r"].set_volumio_url(_fl_url)
+                _fl["changed"] = _fl["r"].update_for_track(_fl_uri)
 
         # Pre-calculate artist fanart state (Item 6): refresh on artist change, advance per track
         fanart_changed = False
@@ -1424,14 +1428,15 @@ class BasicHandler:
             if rect:
                 dirty_rects.append(rect)
 
-        # LAYER: Folder image (background z-order) - BEFORE meters, like album art
-        if self.folder_renderer and self.folderlayer_zorder == "background" and folder_key_changed:
-            if self.bgr_surface and self.folderlayer_rect:
-                self.screen.blit(self.bgr_surface, self.folderlayer_rect.topleft, self.folderlayer_rect)
-            self.folder_renderer.force_redraw()
-            rect = self.folder_renderer.render(self.screen)
-            if rect:
-                dirty_rects.append(rect)
+        # LAYER: Folder images (background z-order) - BEFORE meters, like album art
+        for _fl in self.folder_layers:
+            if _fl["zorder"] == "background" and _fl["changed"]:
+                if self.bgr_surface and _fl["rect"]:
+                    self.screen.blit(self.bgr_surface, _fl["rect"].topleft, _fl["rect"])
+                _fl["r"].force_redraw()
+                rect = _fl["r"].render(self.screen)
+                if rect:
+                    dirty_rects.append(rect)
 
         # LAYER: Artist fanart (background z-order) - BEFORE meters, like album art.
         # During a transition we redraw every frame: restore the clean background in
@@ -1758,19 +1763,21 @@ class BasicHandler:
                     sx = self.sample_pos[0]
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
         
-        # LAYER: Folder image (overlay z-order) - above dynamic content, below foreground.
+        # LAYER: Folder images (overlay z-order) - above dynamic content, below foreground.
         # Redraw only when first loaded or when something underneath became dirty.
-        if self.folder_renderer and self.folderlayer_zorder == "overlay" and self.folder_renderer.has_image():
-            fl_rect = self.folder_renderer.get_backing_rect()
-            need_overlay = self.folder_renderer._need_first_blit
+        for _fl in self.folder_layers:
+            if _fl["zorder"] != "overlay" or not _fl["r"].has_image():
+                continue
+            fl_rect = _fl["r"].get_backing_rect()
+            need_overlay = _fl["r"]._need_first_blit
             if not need_overlay and fl_rect:
                 for d in dirty_rects:
                     if d and fl_rect.colliderect(d):
                         need_overlay = True
                         break
             if need_overlay:
-                self.folder_renderer.force_redraw()
-                rect = self.folder_renderer.render(self.screen)
+                _fl["r"].force_redraw()
+                rect = _fl["r"].render(self.screen)
                 if rect:
                     dirty_rects.append(rect)
 
@@ -1819,7 +1826,7 @@ class BasicHandler:
         log_debug("BasicHandler cleanup", "basic")
         self.bgr_surface = None
         self.album_renderer = None
-        self.folder_renderer = None
+        self.folder_layers = []
         self.fanart_renderer = None
         self.indicator_renderer = None
         self.artist_scroller = None
