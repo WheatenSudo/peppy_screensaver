@@ -3221,6 +3221,12 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     self.config.set('fanartTransition', transition);
     self.config.set('fanartTransitionMs', transitionMs);
 
+    // Bump the config version (so remote clients pick up the change) and remove the
+    // run flag so the running screensaver reloads and applies the new artwork
+    // settings immediately, consistent with the other settings sections.
+    try { self.updateConfigVersion(); } catch (e) {}
+    if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
+
     self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEMES_ARTWORK_SAVED'));
   } catch (e) {
     self.logger.error(id + 'saveThemesArtwork: ' + e.message);
