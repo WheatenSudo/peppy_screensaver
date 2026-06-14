@@ -291,7 +291,9 @@
                                       "fanartEnabled",
                                       "fanartKeyMode",
                                       "fanart_personal_key",
-                                      "fanartInterval"
+                                      "fanartInterval",
+                                      "fanartTransition",
+                                      "fanartTransitionMs"
                                       ]
                               },
                 "content": [
@@ -356,6 +358,34 @@
                                              {"max": 3600}
                                            ],
                              "value": 0
+                            },
+                            {
+                             "id": "fanartTransition",
+                             "element": "select",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_LABEL",
+                             "value": {"value": "none", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_NONE"},
+                             "options": [
+                                          {"value": "none", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_NONE"},
+                                          {"value": "fade", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_FADE"},
+                                          {"value": "merge", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_MERGE"}
+                                        ]
+                            },
+                            {
+                             "id": "fanartTransitionMs",
+                             "element": "input",
+                             "type": "number",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_MS_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_TRANSITION_MS_LABEL",
+                             "attributes": [
+                                             {"placeholder": 600},
+                                             {"maxlength": 4},
+                                             {"min": 50},
+                                             {"max": 3000}
+                                           ],
+                             "value": 600
                             }
                            ]
                 },

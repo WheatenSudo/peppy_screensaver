@@ -1933,8 +1933,10 @@ class CassetteHandler:
         if self.folder_renderer and self.folderlayer_zorder == "background" and folder_key_changed and self.folderlayer_rect:
             clear_regions.append(self.folderlayer_rect)
 
-        # Artist fanart (background z-order) needs clearing when the displayed image changed
-        if self.fanart_renderer and self.fanart_zorder == "background" and fanart_changed and self.fanart_rect:
+        # Artist fanart (background z-order) needs clearing when the displayed image
+        # changed or while a transition is animating (redraw every frame)
+        if self.fanart_renderer and self.fanart_zorder == "background" and self.fanart_rect and \
+                (fanart_changed or self.fanart_renderer.is_transitioning()):
             clear_regions.append(self.fanart_rect)
         
         # Clear all dirty regions from background
@@ -1991,7 +1993,7 @@ class CassetteHandler:
 
         # LAYER 3c: Artist fanart (background z-order) - BEFORE meters, like album art
         if self.fanart_renderer and self.fanart_zorder == "background" and self.fanart_renderer.has_image():
-            if fanart_changed or (force_flag and overlaps_cleared(self.fanart_rect)):
+            if fanart_changed or self.fanart_renderer.is_transitioning() or (force_flag and overlaps_cleared(self.fanart_rect)):
                 self.fanart_renderer.force_redraw()
                 rect = self.fanart_renderer.render(self.screen)
                 if rect:

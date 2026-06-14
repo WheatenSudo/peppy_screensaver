@@ -1433,8 +1433,11 @@ class BasicHandler:
             if rect:
                 dirty_rects.append(rect)
 
-        # LAYER: Artist fanart (background z-order) - BEFORE meters, like album art
-        if self.fanart_renderer and self.fanart_zorder == "background" and fanart_changed:
+        # LAYER: Artist fanart (background z-order) - BEFORE meters, like album art.
+        # During a transition we redraw every frame: restore the clean background in
+        # the box, then let the renderer composite the fade/crossfade for this frame.
+        if self.fanart_renderer and self.fanart_zorder == "background" and \
+                (fanart_changed or self.fanart_renderer.is_transitioning()):
             if self.bgr_surface and self.fanart_rect:
                 self.screen.blit(self.bgr_surface, self.fanart_rect.topleft, self.fanart_rect)
             self.fanart_renderer.force_redraw()

@@ -86,5 +86,13 @@
   "fanartInterval": {
     "value": 0,
     "type": "number"
+  },
+  "fanartTransition": {
+    "value": "none",
+    "type": "string"
+  },
+  "fanartTransitionMs": {
+    "value": 600,
+    "type": "number"
   }
 }

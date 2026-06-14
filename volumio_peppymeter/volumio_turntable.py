@@ -2888,7 +2888,9 @@ class TurntableHandler:
             clear_regions.append(self.folderlayer_rect)
 
         # Artist fanart (background z-order) - clear when the displayed image changed
-        if self.fanart_renderer and self.fanart_zorder == "background" and fanart_changed and self.fanart_rect:
+        # or while a transition is animating (redraw every frame)
+        if self.fanart_renderer and self.fanart_zorder == "background" and self.fanart_rect and \
+                (fanart_changed or self.fanart_renderer.is_transitioning()):
             clear_regions.append(self.fanart_rect)
         
         # Tonearm region - clear LAST position from bgr_surface (not restore_backing)
@@ -2955,7 +2957,7 @@ class TurntableHandler:
                     if _region and self.fanart_rect.colliderect(_region):
                         fa_overlaps_cleared = True
                         break
-            if fanart_changed or fa_overlaps_cleared:
+            if fanart_changed or self.fanart_renderer.is_transitioning() or fa_overlaps_cleared:
                 self.fanart_renderer.force_redraw()
                 rect = self.fanart_renderer.render(self.screen)
                 if rect:

@@ -26,7 +26,7 @@
       "amd64"
     ],
     "details": "VU meter screensaver using PeppyMeter",
-    "changelog": "3.4.2 Themes & Artwork section (theme gallery preview + remove controls), artist fanart slideshow (personal art / local fanart / fanart.tv / Volumio cascade, per-track and timed cadence), separate samplerate colour, progress markers up to 10, folder image layer (back/logo from the track folder), and italic font style; 3.4.1 Meter sensitivity (dB) control with engine gain path and upgrade-safe refresh; 3.4.0 Continuity Engine - backup and restore plugin settings across reinstalls; 3.3.2 - Multi-client remote (unicast discovery/level/spectrum); theme-follow reload fix; 3.3.1 peppy_fonts defaults and config toggle."
+    "changelog": "3.4.2 Themes & Artwork section (theme gallery preview + remove controls), artist fanart slideshow (personal art / local fanart / fanart.tv / Volumio cascade, per-track and timed cadence, fade/merge transitions, personal/project fanart.tv key mode), separate samplerate colour, progress markers up to 10, folder image layer (back/logo from the track folder), and italic font style; 3.4.1 Meter sensitivity (dB) control with engine gain path and upgrade-safe refresh; 3.4.0 Continuity Engine - backup and restore plugin settings across reinstalls; 3.3.2 - Multi-client remote (unicast discovery/level/spectrum); theme-follow reload fix; 3.3.1 peppy_fonts defaults and config toggle."
   },
   "engines": {
     "node": ">=20",

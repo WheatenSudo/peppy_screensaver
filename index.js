@@ -746,6 +746,11 @@ peppyScreensaver.prototype.getUIConfig = function() {
             uiconf.sections[1].content[3].value.label = self.commandRouter.getI18nString(fanartKeyMode === 'project' ? 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT' : 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL');
             uiconf.sections[1].content[4].value = self.config.get('fanart_personal_key') || '';
             uiconf.sections[1].content[5].value = parseInt(self.config.get('fanartInterval'), 10) || 0;
+            var fanartTransition = self.config.get('fanartTransition') || 'none';
+            var fanartTransitionLabels = {none: 'PEPPY_SCREENSAVER.FANART_TRANSITION_NONE', fade: 'PEPPY_SCREENSAVER.FANART_TRANSITION_FADE', merge: 'PEPPY_SCREENSAVER.FANART_TRANSITION_MERGE'};
+            uiconf.sections[1].content[6].value.value = fanartTransition;
+            uiconf.sections[1].content[6].value.label = self.commandRouter.getI18nString(fanartTransitionLabels[fanartTransition] || fanartTransitionLabels.none);
+            uiconf.sections[1].content[7].value = parseInt(self.config.get('fanartTransitionMs'), 10) || 600;
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
@@ -2494,6 +2499,10 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
     return { success: true, source: 'disabled', images: [], interval_ms: 0 };
   }
   var fanartIntervalMs = (parseInt(self.config.get('fanartInterval'), 10) || 0) * 1000;
+  var fanartTransition = self.config.get('fanartTransition') || 'none';
+  if (['none', 'fade', 'merge'].indexOf(fanartTransition) === -1) { fanartTransition = 'none'; }
+  var fanartTransitionMs = parseInt(self.config.get('fanartTransitionMs'), 10);
+  if (isNaN(fanartTransitionMs) || fanartTransitionMs < 50) { fanartTransitionMs = 600; }
   var slug = fanartArtistSlug(artist);
   if (!slug) {
     return { success: false, error: 'invalid artist' };
@@ -2506,7 +2515,7 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
       var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
       if (fs.existsSync(firstFile)) {
         galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
-        return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs };
+        return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
       }
     }
     fs.ensureDirSync(artistCacheDir);
@@ -2617,7 +2626,7 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
 
     self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, images: images });
     galleryLog(self.logger, 'basic', 'getArtistFanart "' + artist + '" -> ' + images.length + ' image(s) from ' + source);
-    return { success: true, source: source, images: images, interval_ms: fanartIntervalMs };
+    return { success: true, source: source, images: images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
   } catch (err) {
     self.logger.error(id + 'getArtistFanart: ' + err.message);
     return { success: false, error: err.message };
@@ -3197,11 +3206,20 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     var interval = parseInt(data && data.fanartInterval, 10);
     if (isNaN(interval) || interval < 0) { interval = 0; }
     if (interval > 3600) { interval = 3600; }
+    var transition = (data && data.fanartTransition && typeof data.fanartTransition === 'object')
+      ? data.fanartTransition.value
+      : (data && data.fanartTransition);
+    if (['none', 'fade', 'merge'].indexOf(transition) === -1) { transition = 'none'; }
+    var transitionMs = parseInt(data && data.fanartTransitionMs, 10);
+    if (isNaN(transitionMs) || transitionMs < 50) { transitionMs = 600; }
+    if (transitionMs > 3000) { transitionMs = 3000; }
 
     self.config.set('fanartEnabled', enabled);
     self.config.set('fanartKeyMode', keyMode);
     self.config.set('fanart_personal_key', key);
     self.config.set('fanartInterval', interval);
+    self.config.set('fanartTransition', transition);
+    self.config.set('fanartTransitionMs', transitionMs);
 
     self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEMES_ARTWORK_SAVED'));
   } catch (e) {
