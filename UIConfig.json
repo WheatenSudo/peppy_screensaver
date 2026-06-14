@@ -279,15 +279,18 @@
                 {
                 "id": "theme_gallery_conf",
                 "element": "section",
-                "label": "TRANSLATE.PEPPY_SCREENSAVER.THEME_GALLERY_CONF",
-                "description": "TRANSLATE.PEPPY_SCREENSAVER.THEME_GALLERY_DESC",
+                "label": "TRANSLATE.PEPPY_SCREENSAVER.THEMES_ARTWORK_CONF",
+                "description": "TRANSLATE.PEPPY_SCREENSAVER.THEMES_ARTWORK_DESC",
                 "icon": "fa-picture-o",
                 "hidden": false,
-                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"removeThemeFolder"},
+                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"saveThemesArtwork"},
                 "saveButton": {
-                              "label": "TRANSLATE.PEPPY_SCREENSAVER.THEME_REMOVE_BTN",
+                              "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
                               "data": [
-                                      "themeToRemove"
+                                      "themeToRemove",
+                                      "fanartEnabled",
+                                      "fanart_personal_key",
+                                      "fanartInterval"
                                       ]
                               },
                 "content": [
@@ -309,6 +312,37 @@
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.THEME_REMOVE_LABEL",
                              "value": {"value": "", "label": "" },
                              "options": []
+                            },
+                            {
+                             "id": "fanartEnabled",
+                             "element": "switch",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ENABLE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ENABLE_LABEL",
+                             "value": false
+                            },
+                            {
+                             "id": "fanart_personal_key",
+                             "element": "input",
+                             "type": "text",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_KEY_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_KEY_LABEL",
+                             "value": ""
+                            },
+                            {
+                             "id": "fanartInterval",
+                             "element": "input",
+                             "type": "number",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_INTERVAL_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_INTERVAL_LABEL",
+                             "attributes": [
+                                             {"placeholder": 0},
+                                             {"maxlength": 4},
+                                             {"min": 0},
+                                             {"max": 3600}
+                                           ],
+                             "value": 0
                             }
                            ]
                 },

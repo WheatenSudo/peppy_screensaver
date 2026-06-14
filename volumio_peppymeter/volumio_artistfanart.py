@@ -11,8 +11,9 @@ screensaver and remote clients.
 Caching: the image set is fetched once per artist change; decoded/scaled surfaces
 are cached, never rebuilt per frame. The renderer exposes a backing rect so the
 handlers' anti-collision (bgr_surface) clearing works exactly like the other art
-elements. Cadence (phase 2): hard cut, advancing one image per track within the
-same artist; a cross-fade is a later enhancement.
+elements. Cadence: hard cut, advancing one image per track within the same artist,
+plus an optional timed interval (interval_ms from the endpoint / global config);
+a cross-fade is a later enhancement.
 """
 
 import io
@@ -41,6 +42,8 @@ class FanartSlideshowRenderer:
         self._cache = {}            # ref -> (surface, blit_pos)
         self._needs_redraw = True
         self._need_first_blit = False
+        self._interval_ms = 0       # timed advance (0 = per-track only); from the endpoint
+        self._last_advance = 0      # pg ticks of the last image advance
 
     @staticmethod
     def _artist_norm(artist):
@@ -51,7 +54,8 @@ class FanartSlideshowRenderer:
             self.volumio_url = url
 
     def update_for_track(self, artist, uri):
-        """Refresh on artist change; advance one image on track change (per-track cadence).
+        """Refresh on artist change; advance one image on track change (per-track
+        cadence) and, when a timed interval is configured, advance on the timer too.
 
         Returns True if the displayed image changed.
         """
@@ -69,14 +73,28 @@ class FanartSlideshowRenderer:
                 self._image_refs = self._fetch_list(artist, uri)
                 if self._image_refs:
                     self._load_index(0)
+            self._last_advance = pg.time.get_ticks()
             return True
+
+        changed = False
         if uri != self._track_key:
             self._track_key = uri
             if self.cadence == "track" and len(self._image_refs) > 1:
-                self._index = (self._index + 1) % len(self._image_refs)
-                self._load_index(self._index)
-                return True
-        return False
+                self._advance()
+                changed = True
+
+        # Timed interval advance (independent of track changes)
+        if self._interval_ms > 0 and len(self._image_refs) > 1:
+            now = pg.time.get_ticks()
+            if now - self._last_advance >= self._interval_ms:
+                self._advance()
+                changed = True
+        return changed
+
+    def _advance(self):
+        self._index = (self._index + 1) % len(self._image_refs)
+        self._load_index(self._index)
+        self._last_advance = pg.time.get_ticks()
 
     def _fetch_list(self, artist, uri):
         try:
@@ -98,6 +116,10 @@ class FanartSlideshowRenderer:
             if not payload.get("success"):
                 return []
             inner = payload.get("data", {})
+            try:
+                self._interval_ms = int(inner.get("interval_ms", 0) or 0)
+            except Exception:
+                self._interval_ms = 0
             if inner.get("success") and isinstance(inner.get("images"), list):
                 return inner["images"]
             return []

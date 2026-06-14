@@ -711,6 +711,11 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 uiconf.sections[0].content[5].attributes[3].max,
                 uiconf.sections[0].content[5].attributes[0].placeholder];
             
+            // Theme-to-remove: empty placeholder first so nothing is pre-selected for deletion
+            self.configManager.pushUIConfigParam(uiconf, 'sections[1].content[1].options', {
+                value: '',
+                label: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE')
+            });
             // active folder
             // fill selection list with custom folders
             var files = fs.readdirSync(base_folder_P);
@@ -731,13 +736,13 @@ peppyScreensaver.prototype.getUIConfig = function() {
                     });
                 }
             });
-            // Default the remove dropdown to the active folder (confirm dialog guards removal)
-            if (peppy_config.current[meterFolderStr] && peppy_config.current[meterFolderStr].includes('_')) {
-                var rmPart = peppy_config.current[meterFolderStr].split('_');
-                var rmEmpty = fs.existsSync(base_folder_P + peppy_config.current[meterFolderStr] + '/meters.txt') ? '' : ' (empty)';
-                uiconf.sections[1].content[1].value.value = peppy_config.current[meterFolderStr];
-                uiconf.sections[1].content[1].value.label = (rmPart[1]).replace(upperc, c => c.toUpperCase()) + '-' + rmPart[2] + ' ' + rmPart[0] + rmEmpty;
-            }
+            // Default the remove dropdown to the empty placeholder (no destructive pre-selection)
+            uiconf.sections[1].content[1].value.value = '';
+            uiconf.sections[1].content[1].value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE');
+            // Artwork: artist fanart slideshow controls (Item 6)
+            uiconf.sections[1].content[2].value = self.config.get('fanartEnabled') === true;
+            uiconf.sections[1].content[3].value = self.config.get('fanart_personal_key') || '';
+            uiconf.sections[1].content[4].value = parseInt(self.config.get('fanartInterval'), 10) || 0;
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
@@ -2483,6 +2488,12 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
   if (!artist) {
     return { success: false, error: 'no artist' };
   }
+  // Master switch (Item 6): fanart only renders when globally enabled AND the skin
+  // declares fanart slots. When disabled, return an empty set so the renderer clears.
+  if (self.config.get('fanartEnabled') !== true) {
+    return { success: true, source: 'disabled', images: [], interval_ms: 0 };
+  }
+  var fanartIntervalMs = (parseInt(self.config.get('fanartInterval'), 10) || 0) * 1000;
   var slug = fanartArtistSlug(artist);
   if (!slug) {
     return { success: false, error: 'invalid artist' };
@@ -2495,7 +2506,7 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
       var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
       if (fs.existsSync(firstFile)) {
         galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
-        return { success: true, source: cached.source + ':cached', images: cached.images };
+        return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs };
       }
     }
     fs.ensureDirSync(artistCacheDir);
@@ -2595,7 +2606,7 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
 
     self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, images: images });
     galleryLog(self.logger, 'basic', 'getArtistFanart "' + artist + '" -> ' + images.length + ' image(s) from ' + source);
-    return { success: true, source: source, images: images };
+    return { success: true, source: source, images: images, interval_ms: fanartIntervalMs };
   } catch (err) {
     self.logger.error(id + 'getArtistFanart: ' + err.message);
     return { success: false, error: err.message };
@@ -3149,6 +3160,44 @@ peppyScreensaver.prototype.selectThemeFromGallery = function (data) {
 
   if (!result.error) {
     self.commandRouter.closeModals();
+  }
+
+  defer.resolve();
+  return defer.promise;
+};
+
+// Unified save for the "Themes & Artwork" section. Persists the artist-fanart
+// settings (enable / personal key / timed interval), and only triggers theme
+// removal when a theme is explicitly selected (the dropdown defaults to an empty
+// placeholder, so a normal save never deletes anything). Removal still goes
+// through the confirm modal in removeThemeFolder.
+peppyScreensaver.prototype.saveThemesArtwork = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+
+  try {
+    var enabled = (data && (data.fanartEnabled === true || data.fanartEnabled === 'true'));
+    var key = (data && typeof data.fanart_personal_key === 'string') ? data.fanart_personal_key.trim() : '';
+    var interval = parseInt(data && data.fanartInterval, 10);
+    if (isNaN(interval) || interval < 0) { interval = 0; }
+    if (interval > 3600) { interval = 3600; }
+
+    self.config.set('fanartEnabled', enabled);
+    self.config.set('fanart_personal_key', key);
+    self.config.set('fanartInterval', interval);
+
+    self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEMES_ARTWORK_SAVED'));
+  } catch (e) {
+    self.logger.error(id + 'saveThemesArtwork: ' + e.message);
+  }
+
+  // Only fall through to removal when a real theme folder was picked.
+  var folder = (data && data.themeToRemove && typeof data.themeToRemove === 'object')
+    ? data.themeToRemove.value
+    : (data && data.themeToRemove);
+  if (self.isValidThemeFolderName(folder)) {
+    self.removeThemeFolder(data);
   }
 
   defer.resolve();
