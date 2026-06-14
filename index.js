@@ -49,6 +49,14 @@ const PeppyConfBackupName = 'peppymeter_config.txt';
 const SpectrumConfBackupName = 'spectrum_config.txt';
 const ThemeGalleryDir = PluginPath + '/theme-gallery';
 const ThemeGallerySectionPrefix = 'user_interface/peppy_screensaver/theme-gallery/';
+// Artist fanart (Item 6): on-disk cache served via /albumart?sectionimage=...
+const FanartCacheDir = PluginPath + '/fanart-cache';
+const FanartSectionPrefix = 'user_interface/peppy_screensaver/fanart-cache/';
+const FanartPersonalArtDir = '/data/albumart/personal/artist'; // Volumio's name-keyed artist art store
+const FANART_TV_PROJECT_KEY = '9bb4ee75161ec1245cb377bf2716b90b'; // distributable project key (Peppy Screensaver)
+const FANART_TTL_MS = 14 * 24 * 60 * 60 * 1000; // refresh online results every 14 days
+const FANART_IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp'];
+const FANART_MAX_IMAGES = 30; // bound cache/CPU per artist
 const THEME_PREVIEW_FILES = ['preview.png', 'preview.jpg', 'preview.jpeg', 'art.png', 'art.jpg'];
 const THEME_GALLERY_COLS = 3;
 const THEME_GALLERY_IMG_WIDTH = 200;
@@ -512,6 +520,17 @@ peppyScreensaver.prototype.onStart = function() {
         method: 'getFolderImage'
     });
     self.logger.info(id + 'REST endpoint registered: peppy_screensaver_folderimage');
+
+    // Artist fanart slideshow (Item 6): server resolves the cascade (personal folder ->
+    // fanart/ subfolder -> fanart.tv -> meta.volumio.org) and returns sectionimage paths.
+    // POST { endpoint: 'peppy_screensaver_artistfanart', data: { artist, uri } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_artistfanart',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getArtistFanart'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_artistfanart');
     
     // Initialize config version on startup
     self.updateConfigVersion();
@@ -2295,6 +2314,292 @@ peppyScreensaver.prototype.getFolderImage = function (data) {
     defer.resolve({ success: false, error: err.message });
   }
   return defer.promise;
+};
+
+// =============================================================================
+// Artist fanart (Item 6) - server-side retrieval + on-disk cache
+// =============================================================================
+function fanartArtistSlug(artist) {
+  return String(artist).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+}
+
+function fanartHttpsGetText(url, headers, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    var lib = url.indexOf('https') === 0 ? require('https') : require('http');
+    var req = lib.get(url, { headers: headers || {} }, function (resp) {
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        resp.resume();
+        resolve(fanartHttpsGetText(resp.headers.location, headers, timeoutMs));
+        return;
+      }
+      if (resp.statusCode !== 200) {
+        resp.resume();
+        reject(new Error('HTTP ' + resp.statusCode));
+        return;
+      }
+      var data = '';
+      resp.setEncoding('utf8');
+      resp.on('data', function (c) { data += c; });
+      resp.on('end', function () { resolve(data); });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs || 8000, function () { req.destroy(new Error('timeout')); });
+  });
+}
+
+function fanartDownloadFile(url, dest, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    var lib = url.indexOf('https') === 0 ? require('https') : require('http');
+    var req = lib.get(url, function (resp) {
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        resp.resume();
+        resolve(fanartDownloadFile(resp.headers.location, dest, timeoutMs));
+        return;
+      }
+      if (resp.statusCode !== 200) {
+        resp.resume();
+        reject(new Error('HTTP ' + resp.statusCode));
+        return;
+      }
+      var file = fs.createWriteStream(dest);
+      resp.pipe(file);
+      file.on('finish', function () { file.close(function () { resolve(true); }); });
+      file.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs || 15000, function () { req.destroy(new Error('timeout')); });
+  });
+}
+
+peppyScreensaver.prototype.fanartListLocalImages = function (dir) {
+  var out = [];
+  try {
+    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      return out;
+    }
+    fs.readdirSync(dir).forEach(function (f) {
+      if (FANART_IMAGE_EXTS.indexOf(path.extname(f).toLowerCase()) !== -1) {
+        var p = path.join(dir, f);
+        try { if (fs.statSync(p).isFile()) out.push(p); } catch (e) {}
+      }
+    });
+  } catch (e) {}
+  out.sort();
+  return out;
+};
+
+peppyScreensaver.prototype.fanartResolveArtistMusicDir = function (uri) {
+  try {
+    var san = uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, '');
+    var base = san.startsWith('/') ? '/mnt' + san : '/mnt/' + san;
+    var albumDir = path.dirname(path.resolve(base));
+    var artistDir = path.dirname(albumDir);
+    if (artistDir.indexOf('/mnt/') !== 0 || artistDir.indexOf('..') !== -1) {
+      return null;
+    }
+    return artistDir;
+  } catch (e) {
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.fanartReadManifest = function (p) {
+  try { if (fs.existsSync(p)) { return JSON.parse(fs.readFileSync(p, 'utf8')); } } catch (e) {}
+  return null;
+};
+
+peppyScreensaver.prototype.fanartWriteManifest = function (p, obj) {
+  try { fs.writeFileSync(p, JSON.stringify(obj)); } catch (e) {}
+};
+
+// Resolve artist name -> MusicBrainz MBID, cached (incl. negative results). Never guesses
+// on a low-confidence match; transient errors are not cached.
+peppyScreensaver.prototype.fanartResolveMBID = async function (artist) {
+  var self = this;
+  var key = artist.toLowerCase();
+  var cacheFile = FanartCacheDir + '/mbid.json';
+  var cache = {};
+  try { if (fs.existsSync(cacheFile)) { cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) || {}; } } catch (e) {}
+  if (Object.prototype.hasOwnProperty.call(cache, key)) {
+    return cache[key];
+  }
+  var mbid = null;
+  try {
+    var url = 'https://musicbrainz.org/ws/2/artist/?query=' + encodeURIComponent('artist:"' + artist + '"') + '&fmt=json&limit=1';
+    var ua = 'PeppyScreensaver/' + peppyPluginVersion + ' ( https://github.com/foonerd/peppy_screensaver )';
+    var body = await fanartHttpsGetText(url, { 'User-Agent': ua, 'Accept': 'application/json' }, 8000);
+    var json = JSON.parse(body);
+    if (json && json.artists && json.artists.length && json.artists[0].id) {
+      var top = json.artists[0];
+      if (top.score === undefined || top.score >= 90) {
+        mbid = top.id;
+      }
+    }
+  } catch (e) {
+    galleryLog(self.logger, 'verbose', 'fanart MBID lookup failed for ' + artist + ': ' + e.message);
+    return null; // do not negative-cache transient failures
+  }
+  try { fs.ensureDirSync(FanartCacheDir); cache[key] = mbid; fs.writeFileSync(cacheFile, JSON.stringify(cache)); } catch (e) {}
+  return mbid;
+};
+
+peppyScreensaver.prototype.fanartFetchFanartTv = async function (mbid, personalKey) {
+  var url = 'https://webservice.fanart.tv/v3/music/' + encodeURIComponent(mbid) + '?api_key=' + FANART_TV_PROJECT_KEY;
+  if (personalKey) {
+    url += '&client_key=' + encodeURIComponent(personalKey);
+  }
+  var body = await fanartHttpsGetText(url, { 'Accept': 'application/json' }, 10000);
+  var json = JSON.parse(body);
+  var urls = [];
+  if (json && Array.isArray(json.artistbackground)) {
+    json.artistbackground.forEach(function (b) { if (b && b.url) { urls.push(b.url); } });
+  }
+  return urls;
+};
+
+peppyScreensaver.prototype.fanartFetchMetaVolumio = async function (artist) {
+  var variant = 'volumio';
+  try {
+    variant = execSync("cat /etc/os-release | grep ^VOLUMIO_VARIANT | tr -d 'VOLUMIO_VARIANT=\"'").toString().replace('\n', '').trim() || 'volumio';
+  } catch (e) {}
+  var url = 'https://meta.volumio.org/metas/v1/getDatas?mode=artistArt&artist=' + encodeURIComponent(artist.replace('&', 'and')) + '&variant=' + encodeURIComponent(variant);
+  var body = await fanartHttpsGetText(url, { 'Accept': 'application/json' }, 8000);
+  var json = JSON.parse(body);
+  if (json && json.success && json.data) {
+    if (typeof json.data === 'string') { return json.data; }
+    if (Array.isArray(json.data) && json.data.length) { return json.data[0]; }
+  }
+  return null;
+};
+
+// HTTP endpoint: artist fanart slideshow source list (Item 6). Returns an ordered list
+// of sectionimage paths (served via /albumart?sectionimage=...), populating an on-disk
+// cache. Cascade: personal artist folder -> fanart/ subfolder -> fanart.tv (MBID) ->
+// meta.volumio.org single. POST { endpoint: 'peppy_screensaver_artistfanart', data: { artist, uri } }
+peppyScreensaver.prototype.getArtistFanart = async function (data) {
+  var self = this;
+  var artist = (data && typeof data.artist === 'string') ? data.artist.trim() : '';
+  var uri = (data && typeof data.uri === 'string') ? data.uri.trim() : '';
+  if (!artist) {
+    return { success: false, error: 'no artist' };
+  }
+  var slug = fanartArtistSlug(artist);
+  if (!slug) {
+    return { success: false, error: 'invalid artist' };
+  }
+  var artistCacheDir = FanartCacheDir + '/' + slug;
+  var manifestPath = artistCacheDir + '/manifest.json';
+  try {
+    var cached = self.fanartReadManifest(manifestPath);
+    if (cached && cached.images && cached.images.length && (Date.now() - (cached.ts || 0)) < FANART_TTL_MS) {
+      var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
+      if (fs.existsSync(firstFile)) {
+        galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
+        return { success: true, source: cached.source + ':cached', images: cached.images };
+      }
+    }
+    fs.ensureDirSync(artistCacheDir);
+
+    var source = null;
+    var picked = [];
+
+    // Tier 1: Volumio personal artist art folder (name-keyed)
+    if (artist.indexOf('/') === -1 && artist.indexOf('..') === -1) {
+      var localImgs = self.fanartListLocalImages(FanartPersonalArtDir + '/' + artist);
+      if (localImgs.length) {
+        source = 'personal';
+        picked = localImgs.map(function (p) { return { type: 'file', path: p }; });
+      }
+    }
+
+    // Tier 2: fanart/ subfolder in the artist's music directory
+    if (!picked.length && uri) {
+      var artistDir = self.fanartResolveArtistMusicDir(uri);
+      if (artistDir) {
+        var subImgs = self.fanartListLocalImages(path.join(artistDir, 'fanart'));
+        if (subImgs.length) {
+          source = 'local-fanart';
+          picked = subImgs.map(function (p) { return { type: 'file', path: p }; });
+        }
+      }
+    }
+
+    // Tier 3: fanart.tv full set (MBID via MusicBrainz)
+    if (!picked.length) {
+      var mbid = await self.fanartResolveMBID(artist);
+      if (mbid) {
+        var personalKey = '';
+        try { personalKey = (self.config.get('fanart_personal_key') || '').trim(); } catch (e) {}
+        var urls = await self.fanartFetchFanartTv(mbid, personalKey);
+        if (urls.length) {
+          source = 'fanart.tv';
+          picked = urls.map(function (u) { return { type: 'url', url: u }; });
+        }
+      }
+    }
+
+    // Tier 4: meta.volumio.org single image
+    if (!picked.length) {
+      var metaUrl = await self.fanartFetchMetaVolumio(artist);
+      if (metaUrl) {
+        source = 'meta.volumio';
+        picked = [{ type: 'url', url: metaUrl }];
+      }
+    }
+
+    if (!picked.length) {
+      self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: 'none', images: [] });
+      galleryLog(self.logger, 'basic', 'getArtistFanart: no fanart for "' + artist + '"');
+      return { success: false, error: 'no fanart' };
+    }
+
+    if (picked.length > FANART_MAX_IMAGES) {
+      picked = picked.slice(0, FANART_MAX_IMAGES);
+    }
+
+    // Clear previous cached images for this artist (keep manifest)
+    try {
+      fs.readdirSync(artistCacheDir).forEach(function (f) {
+        if (f !== 'manifest.json') { fs.removeSync(path.join(artistCacheDir, f)); }
+      });
+    } catch (e) {}
+
+    var images = [];
+    for (var i = 0; i < picked.length; i++) {
+      var item = picked[i];
+      var ext = '.jpg';
+      try {
+        if (item.type === 'file') {
+          ext = path.extname(item.path).toLowerCase() || '.jpg';
+        } else {
+          ext = path.extname(item.url.split('?')[0]).toLowerCase();
+          if (FANART_IMAGE_EXTS.indexOf(ext) === -1) { ext = '.jpg'; }
+        }
+        var destName = i + ext;
+        var destPath = path.join(artistCacheDir, destName);
+        if (item.type === 'file') {
+          fs.copySync(item.path, destPath);
+        } else {
+          await fanartDownloadFile(item.url, destPath, 15000);
+        }
+        images.push(FanartSectionPrefix + slug + '/' + destName);
+      } catch (e) {
+        galleryLog(self.logger, 'verbose', 'fanart image ' + i + ' failed: ' + e.message);
+      }
+    }
+
+    if (!images.length) {
+      self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: 'none', images: [] });
+      return { success: false, error: 'fetch failed' };
+    }
+
+    self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, images: images });
+    galleryLog(self.logger, 'basic', 'getArtistFanart "' + artist + '" -> ' + images.length + ' image(s) from ' + source);
+    return { success: true, source: source, images: images };
+  } catch (err) {
+    self.logger.error(id + 'getArtistFanart: ' + err.message);
+    return { success: false, error: err.message };
+  }
 };
 
 function escapeThemeGalleryHtml(text) {
