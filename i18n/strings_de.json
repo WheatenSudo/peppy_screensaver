@@ -140,6 +140,8 @@
     "FRAME_RATE_DOC":"Bildwiederholrate in Bildern pro Sekunde (FPS).<br /><br /><b>Standard: 30</b><br /><br />Niedrigere Werte reduzieren die CPU-Auslastung, können aber weniger flüssig erscheinen.<br />Empfohlen: 20-30 für Pi 4, 15-20 für Pi 3",
     "UPDATE_INTERVAL":"Update-Intervall",
     "UPDATE_INTERVAL_DOC":"Aktualisierungsfrequenz für Spektrum und Zeiger.<br /><br /><b>Standard: 2</b> (Aktualisierung jeden 2. Frame)<br /><br />Höhere Werte reduzieren die CPU-Auslastung, verringern aber die visuelle Reaktionsfähigkeit.<br />Bei 30 FPS mit Intervall 2: 15 Updates/Sek<br />Bei 20 FPS mit Intervall 3: 6,7 Updates/Sek",
+    "METER_DELAY":"Meter-Timing-Verzögerung (ms)",
+    "METER_DELAY_DOC":"Verzögerung zwischen Render-Frames in Millisekunden.<br /><br /><b>Standard: 10</b><br /><br />Diese Einstellung balanciert CPU-Auslastung und Reaktionsfähigkeit der Anzeige.<br /><br /><b>Höhere Werte (10-20):</b> Geringere CPU-Auslastung, Anzeige kann etwas träge wirken<br /><b>Niedrigere Werte (0-5):</b> Höhere CPU-Auslastung, reaktionsfreudigere Anzeige<br /><br /><span style='color:orange'><b>Warnung:</b></span> Werte unter 10 können die CPU-Auslastung erheblich erhöhen (bis zu 95%).<br />Empfohlen: 10 ms für die meisten Systeme.",
     "DEBUG_LEVEL":"Debug-Protokollierung",
     "DEBUG_LEVEL_DOC":"Debug-Protokollierung in /tmp/peppy_debug.log aktivieren.<br /><br /><b>Aus:</b> Keine Protokollierung (empfohlen für normalen Betrieb)<br /><b>Einfach:</b> Wichtige Ereignisse und Fehler<br /><b>Ausführlich:</b> Detaillierte Informationen zur Fehlerbehebung",
     "DEBUG_OFF":"Aus",

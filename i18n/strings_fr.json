@@ -140,6 +140,8 @@
     "FRAME_RATE_DOC":"Taux de rafraîchissement en images par seconde (FPS).<br /><br /><b>Par défaut: 30</b><br /><br />Des valeurs plus basses réduisent l'utilisation du CPU mais peuvent sembler moins fluides.<br />Recommandé: 20-30 pour Pi 4, 15-20 pour Pi 3",
     "UPDATE_INTERVAL":"Intervalle de mise à jour",
     "UPDATE_INTERVAL_DOC":"Fréquence de mise à jour du spectre et des aiguilles.<br /><br /><b>Par défaut: 2</b> (mise à jour toutes les 2 images)<br /><br />Des valeurs plus élevées réduisent l'utilisation du CPU mais diminuent la réactivité visuelle.<br />À 30 FPS avec intervalle 2: 15 mises à jour/sec<br />À 20 FPS avec intervalle 3: 6,7 mises à jour/sec",
+    "METER_DELAY":"Délai de synchronisation du vumètre (ms)",
+    "METER_DELAY_DOC":"Délai entre les images de rendu en millisecondes.<br /><br /><b>Par défaut: 10</b><br /><br />Ce réglage équilibre l'utilisation du CPU et la réactivité du vumètre.<br /><br /><b>Valeurs élevées (10-20):</b> Utilisation CPU réduite, le vumètre peut sembler un peu lent<br /><b>Valeurs faibles (0-5):</b> Utilisation CPU plus élevée, vumètre plus réactif<br /><br /><span style='color:orange'><b>Avertissement:</b></span> Les valeurs inférieures à 10 peuvent augmenter considérablement l'utilisation du CPU (jusqu'à 95%).<br />Recommandé: 10 ms pour la plupart des systèmes.",
     "DEBUG_LEVEL":"Journalisation de débogage",
     "DEBUG_LEVEL_DOC":"Activer la journalisation de débogage dans /tmp/peppy_debug.log.<br /><br /><b>Désactivé:</b> Aucune journalisation (recommandé pour une utilisation normale)<br /><b>Basique:</b> Événements essentiels et erreurs<br /><b>Détaillé:</b> Informations détaillées pour le dépannage",
     "DEBUG_OFF":"Désactivé",
