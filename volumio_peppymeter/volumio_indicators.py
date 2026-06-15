@@ -583,7 +583,8 @@ class SliderIndicator:
                  arc_width=6, arc_angle_start=225.0, arc_angle_end=-45.0,
                  slider_track=None, slider_tip=None, slider_orientation="vertical",
                  slider_travel=None, slider_tip_offset=None, name="Slider", markers=None,
-                 head_image=None, head_offset=(0, 0), font_path=None):
+                 head_image=None, head_offset=(0, 0), font_path=None,
+                 fill_color=None, fill_width=None):
         """Initialize slider indicator.
         
         :param pos: (x, y) screen position
@@ -644,6 +645,12 @@ class SliderIndicator:
         self._slider_track_image = None
         self._slider_tip_image = None
         self._slider_is_image_based = False
+
+        # Optional fill/tail behind the image slider knob (opt-in via fill_color).
+        # fill_width is the cross-axis thickness; it is capped at the knob size at
+        # render time so the fill stays inside get_rect() (no ghosting).
+        self.fill_color = fill_color
+        self.fill_width = int(fill_width) if fill_width else None
         
         # Font for numeric display
         if font:
@@ -979,6 +986,34 @@ class SliderIndicator:
                 tip_offset_x = travel_start + int((volume / 100.0) * travel_range)
                 tip_x = x + tip_offset_x + self.slider_tip_offset[0]
                 tip_y = y + self.slider_tip_offset[1] + (h - tip_h) // 2  # Center vertically
+            
+            # Optional fill (tail) from the zero end up to the knob, like the progress
+            # bar. Opt-in via fill_color. The fill is kept within the knob's cross-axis
+            # size and the existing travel range, so it stays inside get_rect() - this
+            # adds NO change to the tip geometry or the dirty/backing rect.
+            if self.fill_color:
+                if self.slider_orientation == "vertical":
+                    thickness = self.fill_width if self.fill_width else tip_w
+                    thickness = max(1, min(thickness, tip_w))
+                    cx = tip_x + tip_w // 2
+                    cur_center_y = tip_y + tip_h // 2
+                    zero_center_y = y + travel_end + self.slider_tip_offset[1] + tip_h // 2
+                    fill_top = min(cur_center_y, zero_center_y)
+                    fill_h = abs(zero_center_y - cur_center_y)
+                    if fill_h > 0:
+                        pg.draw.rect(screen, self.fill_color,
+                                     (cx - thickness // 2, fill_top, thickness, fill_h))
+                else:
+                    thickness = self.fill_width if self.fill_width else tip_h
+                    thickness = max(1, min(thickness, tip_h))
+                    cy = tip_y + tip_h // 2
+                    cur_center_x = tip_x + tip_w // 2
+                    zero_center_x = x + travel_start + self.slider_tip_offset[0] + tip_w // 2
+                    fill_left = min(cur_center_x, zero_center_x)
+                    fill_w = abs(cur_center_x - zero_center_x)
+                    if fill_w > 0:
+                        pg.draw.rect(screen, self.fill_color,
+                                     (fill_left, cy - thickness // 2, fill_w, thickness))
             
             screen.blit(self._slider_tip_image, (tip_x, tip_y))
             # Return full travel bounding box as dirty rect (not just dim rect).
@@ -1322,6 +1357,9 @@ class IndicatorRenderer:
         slider_orientation = self.config.get("volume.slider.orientation", "vertical")
         slider_travel = self.config.get("volume.slider.travel")
         slider_tip_offset = self.config.get("volume.slider.tip.offset", (0, 0))
+        # Optional fill/tail behind the image slider knob
+        fill_color = self.config.get("volume.fill.color")
+        fill_width = self.config.get("volume.fill.width")
         
         # Get font from fonts dict if available
         font = self.fonts.get("regular") if self.fonts else None
@@ -1347,6 +1385,8 @@ class IndicatorRenderer:
             slider_orientation=slider_orientation,
             slider_travel=slider_travel,
             slider_tip_offset=slider_tip_offset,
+            fill_color=fill_color,
+            fill_width=fill_width,
             name="Volume"
         )
     

@@ -171,6 +171,8 @@ VOLUME_SLIDER_TIP = "volume.slider.tip"
 VOLUME_SLIDER_ORIENTATION = "volume.slider.orientation"
 VOLUME_SLIDER_TRAVEL = "volume.slider.travel"
 VOLUME_SLIDER_TIP_OFFSET = "volume.slider.tip.offset"
+VOLUME_FILL_COLOR = "volume.fill.color"   # optional fill/tail behind the image slider knob
+VOLUME_FILL_WIDTH = "volume.fill.width"   # fill thickness (cross-axis); capped at the knob size
 
 # Mute indicator
 MUTE_POS = "mute.pos"
@@ -883,6 +885,15 @@ class Volumio_ConfigFileParser(object):
             d[VOLUME_SLIDER_TIP_OFFSET] = (int(spl[0]), int(spl[1]))
         except:
             d[VOLUME_SLIDER_TIP_OFFSET] = (0, 0)
+        try:
+            spl = config_file.get(section, VOLUME_FILL_COLOR).split(',')
+            d[VOLUME_FILL_COLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))
+        except:
+            d[VOLUME_FILL_COLOR] = None  # off by default (existing skins unchanged)
+        try:
+            d[VOLUME_FILL_WIDTH] = config_file.getint(section, VOLUME_FILL_WIDTH)
+        except:
+            d[VOLUME_FILL_WIDTH] = None  # default: knob cross-axis size
 
         # Mute indicator
         try:
