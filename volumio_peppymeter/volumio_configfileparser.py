@@ -174,6 +174,7 @@ VOLUME_SLIDER_TIP_OFFSET = "volume.slider.tip.offset"
 VOLUME_FILL_COLOR = "volume.fill.color"   # optional fill/tail behind the image slider knob
 VOLUME_FILL_WIDTH = "volume.fill.width"   # fill thickness (cross-axis); defaults to the knob size
 VOLUME_FILL_OFFSET = "volume.fill.offset" # nudge the fill from the knob-centred position (dx,dy)
+VOLUME_FILL_RADIUS = "volume.fill.radius" # rounded fill ends (border radius px); 0 = square
 
 # Mute indicator
 MUTE_POS = "mute.pos"
@@ -900,6 +901,10 @@ class Volumio_ConfigFileParser(object):
             d[VOLUME_FILL_OFFSET] = (int(spl[0]), int(spl[1]))
         except:
             d[VOLUME_FILL_OFFSET] = (0, 0)  # centred on the knob by default
+        try:
+            d[VOLUME_FILL_RADIUS] = max(0, config_file.getint(section, VOLUME_FILL_RADIUS))
+        except:
+            d[VOLUME_FILL_RADIUS] = 0  # square ends by default
 
         # Mute indicator
         try:

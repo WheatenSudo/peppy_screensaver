@@ -584,7 +584,7 @@ class SliderIndicator:
                  slider_track=None, slider_tip=None, slider_orientation="vertical",
                  slider_travel=None, slider_tip_offset=None, name="Slider", markers=None,
                  head_image=None, head_offset=(0, 0), font_path=None,
-                 fill_color=None, fill_width=None, fill_offset=(0, 0)):
+                 fill_color=None, fill_width=None, fill_offset=(0, 0), fill_radius=0):
         """Initialize slider indicator.
         
         :param pos: (x, y) screen position
@@ -654,6 +654,9 @@ class SliderIndicator:
         self.fill_color = fill_color
         self.fill_width = int(fill_width) if fill_width else None
         self.fill_offset = fill_offset if fill_offset else (0, 0)
+        # Rounded fill ends (pygame border_radius); 0 = square. pygame auto-clamps to
+        # half the shorter side, so short fills (near 0%) round gracefully.
+        self.fill_radius = max(0, int(fill_radius)) if fill_radius else 0
         
         # Font for numeric display
         if font:
@@ -1042,7 +1045,8 @@ class SliderIndicator:
                     fill_h = abs(zero_center_y - cur_center_y)
                     if fill_h > 0:
                         pg.draw.rect(screen, self.fill_color,
-                                     (cx - thickness // 2, fill_top, thickness, fill_h))
+                                     (cx - thickness // 2, fill_top, thickness, fill_h),
+                                     border_radius=self.fill_radius)
                 else:
                     thickness = max(1, self.fill_width if self.fill_width else tip_h)
                     cy = tip_y + tip_h // 2 + dy
@@ -1052,7 +1056,8 @@ class SliderIndicator:
                     fill_w = abs(cur_center_x - zero_center_x)
                     if fill_w > 0:
                         pg.draw.rect(screen, self.fill_color,
-                                     (fill_left, cy - thickness // 2, fill_w, thickness))
+                                     (fill_left, cy - thickness // 2, fill_w, thickness),
+                                     border_radius=self.fill_radius)
             
             screen.blit(self._slider_tip_image, (tip_x, tip_y))
             # Return full travel bounding box as dirty rect (not just dim rect).
@@ -1400,6 +1405,7 @@ class IndicatorRenderer:
         fill_color = self.config.get("volume.fill.color")
         fill_width = self.config.get("volume.fill.width")
         fill_offset = self.config.get("volume.fill.offset", (0, 0))
+        fill_radius = self.config.get("volume.fill.radius", 0)
         
         # Get font from fonts dict if available
         font = self.fonts.get("regular") if self.fonts else None
@@ -1428,6 +1434,7 @@ class IndicatorRenderer:
             fill_color=fill_color,
             fill_width=fill_width,
             fill_offset=fill_offset,
+            fill_radius=fill_radius,
             name="Volume"
         )
     
