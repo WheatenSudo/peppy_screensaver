@@ -584,7 +584,7 @@ class SliderIndicator:
                  slider_track=None, slider_tip=None, slider_orientation="vertical",
                  slider_travel=None, slider_tip_offset=None, name="Slider", markers=None,
                  head_image=None, head_offset=(0, 0), font_path=None,
-                 fill_color=None, fill_width=None):
+                 fill_color=None, fill_width=None, fill_offset=(0, 0)):
         """Initialize slider indicator.
         
         :param pos: (x, y) screen position
@@ -647,10 +647,13 @@ class SliderIndicator:
         self._slider_is_image_based = False
 
         # Optional fill/tail behind the image slider knob (opt-in via fill_color).
-        # fill_width is the cross-axis thickness; it is capped at the knob size at
-        # render time so the fill stays inside get_rect() (no ghosting).
+        # fill_width is the cross-axis thickness (defaults to the knob size).
+        # fill_offset (dx,dy) nudges the fill off the knob-centred position so it can sit
+        # on the visual groove. get_rect() unions the fill footprint so capture/restore
+        # always covers it (no ghosting), independent of width/offset.
         self.fill_color = fill_color
         self.fill_width = int(fill_width) if fill_width else None
+        self.fill_offset = fill_offset if fill_offset else (0, 0)
         
         # Font for numeric display
         if font:
@@ -788,6 +791,38 @@ class SliderIndicator:
                 self.slider_travel = (0, self.dim[0] - tip_w)
             print(f"[{self.name}] Auto-calculated travel: {self.slider_travel}")
     
+    def _image_fill_bbox(self):
+        """Full-travel footprint of the optional image-slider fill (None if no fill).
+
+        Used by get_rect() so capture/restore covers the fill regardless of its width
+        or offset. Must stay consistent with the per-frame fill drawn in _render_slider:
+        the fill spans the whole travel range (cross-axis = thickness, centred on the
+        knob plus fill_offset).
+        """
+        if not self.fill_color:
+            return None
+        if not (self._slider_is_image_based and self._slider_tip_image and self.slider_travel):
+            return None
+        x, y = self.pos
+        w, h = self.dim
+        tip_w = self._slider_tip_image.get_width()
+        tip_h = self._slider_tip_image.get_height()
+        off_x, off_y = self.slider_tip_offset
+        dx, dy = self.fill_offset
+        travel_start, travel_end = self.slider_travel
+        if self.slider_orientation == "vertical":
+            thickness = max(1, self.fill_width if self.fill_width else tip_w)
+            cx = x + off_x + (w - tip_w) // 2 + tip_w // 2 + dx
+            top = y + travel_start + off_y + tip_h // 2 + dy
+            height = max(0, travel_end - travel_start)
+            return pg.Rect(cx - thickness // 2, top, thickness, height)
+        else:
+            thickness = max(1, self.fill_width if self.fill_width else tip_h)
+            cy = y + off_y + (h - tip_h) // 2 + tip_h // 2 + dy
+            left = x + travel_start + off_x + tip_w // 2 + dx
+            width = max(0, travel_end - travel_start)
+            return pg.Rect(left, cy - thickness // 2, width, thickness)
+
     def get_rect(self):
         """Get bounding rectangle for this indicator.
         
@@ -823,7 +858,7 @@ class SliderIndicator:
                 # Plus tip height at the bottom position
                 top = y + travel_start + off_y
                 bottom = y + travel_end + off_y + tip_h
-                return pg.Rect(left, top, right - left, bottom - top)
+                rect = pg.Rect(left, top, right - left, bottom - top)
             else:
                 # Tip moves horizontally
                 # Tip y position (centered vertically with offset)
@@ -835,7 +870,12 @@ class SliderIndicator:
                 # Plus tip width at the right position
                 left = x + travel_start + off_x
                 right = x + travel_end + off_x + tip_w
-                return pg.Rect(left, top, right - left, bottom - top)
+                rect = pg.Rect(left, top, right - left, bottom - top)
+            # Include the optional fill footprint so capture/restore covers it.
+            fill_bbox = self._image_fill_bbox()
+            if fill_bbox:
+                rect = rect.union(fill_bbox)
+            return rect
         elif self.style == self.STYLE_SLIDER and self._head_surface:
             # Progress bar with head image: expand rect to full head travel area so
             # restore_backing clears previous head position (no burn when head moves).
@@ -988,28 +1028,27 @@ class SliderIndicator:
                 tip_y = y + self.slider_tip_offset[1] + (h - tip_h) // 2  # Center vertically
             
             # Optional fill (tail) from the zero end up to the knob, like the progress
-            # bar. Opt-in via fill_color. The fill is kept within the knob's cross-axis
-            # size and the existing travel range, so it stays inside get_rect() - this
-            # adds NO change to the tip geometry or the dirty/backing rect.
+            # bar. Opt-in via fill_color; width and offset are free (the fill footprint is
+            # unioned into get_rect(), so capture/restore always clears it). The tip
+            # geometry above is unchanged. Math here mirrors _image_fill_bbox().
             if self.fill_color:
+                dx, dy = self.fill_offset
                 if self.slider_orientation == "vertical":
-                    thickness = self.fill_width if self.fill_width else tip_w
-                    thickness = max(1, min(thickness, tip_w))
-                    cx = tip_x + tip_w // 2
+                    thickness = max(1, self.fill_width if self.fill_width else tip_w)
+                    cx = tip_x + tip_w // 2 + dx
                     cur_center_y = tip_y + tip_h // 2
                     zero_center_y = y + travel_end + self.slider_tip_offset[1] + tip_h // 2
-                    fill_top = min(cur_center_y, zero_center_y)
+                    fill_top = min(cur_center_y, zero_center_y) + dy
                     fill_h = abs(zero_center_y - cur_center_y)
                     if fill_h > 0:
                         pg.draw.rect(screen, self.fill_color,
                                      (cx - thickness // 2, fill_top, thickness, fill_h))
                 else:
-                    thickness = self.fill_width if self.fill_width else tip_h
-                    thickness = max(1, min(thickness, tip_h))
-                    cy = tip_y + tip_h // 2
+                    thickness = max(1, self.fill_width if self.fill_width else tip_h)
+                    cy = tip_y + tip_h // 2 + dy
                     cur_center_x = tip_x + tip_w // 2
                     zero_center_x = x + travel_start + self.slider_tip_offset[0] + tip_w // 2
-                    fill_left = min(cur_center_x, zero_center_x)
+                    fill_left = min(cur_center_x, zero_center_x) + dx
                     fill_w = abs(cur_center_x - zero_center_x)
                     if fill_w > 0:
                         pg.draw.rect(screen, self.fill_color,
@@ -1360,6 +1399,7 @@ class IndicatorRenderer:
         # Optional fill/tail behind the image slider knob
         fill_color = self.config.get("volume.fill.color")
         fill_width = self.config.get("volume.fill.width")
+        fill_offset = self.config.get("volume.fill.offset", (0, 0))
         
         # Get font from fonts dict if available
         font = self.fonts.get("regular") if self.fonts else None
@@ -1387,6 +1427,7 @@ class IndicatorRenderer:
             slider_tip_offset=slider_tip_offset,
             fill_color=fill_color,
             fill_width=fill_width,
+            fill_offset=fill_offset,
             name="Volume"
         )
     
