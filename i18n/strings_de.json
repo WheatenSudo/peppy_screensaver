@@ -114,6 +114,8 @@
     "DO_NOT_DELETE_THEMES_DOC":"Wenn aktiviert: Beim Deinstallieren wird der Theme-Ordner nicht gelöscht; beim Installieren oder Aktualisieren werden vorhandene Themes nicht überschrieben. Gilt für alle benutzerdefinierten Themes (Meter, Spektrum, Kassette, Plattenspieler usw.).",
     "USE_SYSTEM_FONTS":"Systemschriften verwenden",
     "USE_SYSTEM_FONTS_DOC":"Volumio-Systemschriften (Lato) anstelle der integrierten PeppyFont verwenden. PeppyFont bietet universelle Sprachunterstuetzung (CJK, Arabisch, Kyrillisch, Hebraeisch, Thai usw.). Aktivieren Sie dies nur, wenn Sie die Originalschriften bevorzugen oder benutzerdefinierte Schriften in config.txt konfiguriert haben.",
+    "SMB_SHARE_CONF":"Vorlagen-Dateifreigabe (SMB)",
+    "SMB_SHARE_DESC":"Geben Sie Ihre Template-Ordner über die Volumio-Netzwerkfreigabe frei, um Skins von einem anderen Computer zu bearbeiten und zu synchronisieren.",
     "SMB_SHARE_ACCESS":"Template-Updates über Netzwerkfreigabe erlauben",
     "SMB_SHARE_ACCESS_DOC":"Dateiberechtigungen der Template-Ordner öffnen, damit sie über die Volumio-Netzwerkfreigabe (SMB/CIFS) aktualisiert werden können.<br /><br />Wenn aktiviert, können Templates und Spektrum-Templates im internen Speicher von anderen Geräten synchronisiert werden, z.B. mit Beyond Compare, WinSCP oder einem beliebigen SMB-Client.<br /><br />Berechtigungen werden bei jedem Pluginstart und beim Speichern der Einstellungen normalisiert, um neu hochgeladene Dateien zu erfassen.",
     "APPLY":"Anwenden",

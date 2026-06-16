@@ -1411,14 +1411,8 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         // (use system fonts moved to Themes & Artwork -> saveThemesArtwork)
     }
     
-    // SMB share access (stored in config.json only, not config.txt)
-    var smbShareAccess = confData.smbShareAccess === true;
-    if (self.config.get('smbShareAccess') !== smbShareAccess) {
-        self.config.set('smbShareAccess', smbShareAccess);
-        self.normalizeTemplatePermissions(smbShareAccess);
-        noChanges = false;
-    }
-    
+    // (SMB share access moved to the Template File Sharing section -> saveSmbShareConf)
+
     // (screen width/height detection moved to Themes & Artwork -> saveThemesArtwork,
     //  since it follows the active theme folder)
 
@@ -1474,6 +1468,30 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
   }, 500);
   
 }; // end savePeppyMeterConf ----------------------------
+
+// Template File Sharing (SMB) save handler.
+// Only toggles config.json + filesystem permissions used for sharing templates over
+// the network share; it has no effect on the running meter, so no reload is needed.
+// ---------------------------------------------------------------
+peppyScreensaver.prototype.saveSmbShareConf = function (confData) {
+  const self = this;
+  let noChanges = true;
+
+  var smbShareAccess = confData.smbShareAccess === true;
+  if (self.config.get('smbShareAccess') !== smbShareAccess) {
+    self.config.set('smbShareAccess', smbShareAccess);
+    self.normalizeTemplatePermissions(smbShareAccess);
+    noChanges = false;
+  }
+
+  setTimeout(function () {
+    if (noChanges) {
+      self.commandRouter.pushToastMessage('info', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+    } else {
+      self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+    }
+  }, 500);
+}; // end saveSmbShareConf ----------------------------
 
 // called when 'save' button pressed on Playback Behavior settings
 // ---------------------------------------------------------------

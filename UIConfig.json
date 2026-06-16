@@ -24,8 +24,7 @@
                                       "position_x",
                                       "position_y",
                                       "mouseEnabled",
-                                      "displayOutput",
-                                      "smbShareAccess"
+                                      "displayOutput"
                                       ]
                               },
                 "content": [
@@ -162,13 +161,6 @@
                                     "label": "Display=1"
                                  }
                                ]
-                            },
-                            {
-                             "id": "smbShareAccess",
-                             "element": "switch",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SMB_SHARE_ACCESS_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SMB_SHARE_ACCESS",
-                             "value": false
                             }
                 ]
             },
@@ -976,6 +968,30 @@
                              "value": 1
                             }
                             ]
+                },
+                {
+                "id": "smb_share_conf",
+                "element": "section",
+                "label": "TRANSLATE.PEPPY_SCREENSAVER.SMB_SHARE_CONF",
+                "description": "TRANSLATE.PEPPY_SCREENSAVER.SMB_SHARE_DESC",
+                "icon": "fa-share-alt",
+                "hidden": false,
+                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"saveSmbShareConf"},
+                "saveButton": {
+                              "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
+                              "data": [
+                                      "smbShareAccess"
+                                      ]
+                              },
+                "content": [
+                            {
+                             "id": "smbShareAccess",
+                             "element": "switch",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SMB_SHARE_ACCESS_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SMB_SHARE_ACCESS",
+                             "value": false
+                            }
+                           ]
                 },
                 {
                 "id": "backup_create_conf",
