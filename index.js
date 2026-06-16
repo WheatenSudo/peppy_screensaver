@@ -1470,29 +1470,7 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
     peppy_config.current['screen.height'] = dimensions.height;
     
     
-    // write needle cache
-    var needleCache = lt_4GB ? 'False' : confData.needleCache? 'True' : 'False';
-    if (peppy_config.current['use.cache'] != needleCache) {
-        peppy_config.current['use.cache'] = needleCache;
-        noChanges = false;
-    }
-
-    // write cache size
-    if (!lt_4GB) {
-        if (Number.isNaN(parseInt(confData.cachesize, 10)) || !isFinite(confData.cachesize)) {
-            uiNeedsUpdate = true;
-            setTimeout(function () {
-                self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CACHESIZE') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-            }, 500);
-        } else {
-            confData.cachesize = self.minmax('CACHESIZE', confData.cachesize, minmax[4]);
-            if (peppy_config.current['cache.size'] != confData.cachesize) {
-                peppy_config.current['cache.size'] = confData.cachesize;
-                noChanges = false;
-            }
-        }
-    }
-    
+    // (needle cache + cache size moved to Performance & Rendering -> savePerformanceConf)
     // (smooth buffer + meter sensitivity moved to the Meter section -> saveVUMeterConf)
 
     // write mouse support
@@ -1748,6 +1726,29 @@ peppyScreensaver.prototype.savePerformanceConf = function (confData) {
         if (peppy_config.current['meter.delay'] != confData.meterDelay) {
             peppy_config.current['meter.delay'] = confData.meterDelay;
             noChanges = false;
+        }
+    }
+
+    // needle cache (moved here from the global section: render/CPU tuning)
+    var needleCache = lt_4GB ? 'False' : confData.needleCache? 'True' : 'False';
+    if (peppy_config.current['use.cache'] != needleCache) {
+        peppy_config.current['use.cache'] = needleCache;
+        noChanges = false;
+    }
+
+    // cache size (moved here from the global section)
+    if (!lt_4GB) {
+        if (Number.isNaN(parseInt(confData.cachesize, 10)) || !isFinite(confData.cachesize)) {
+            uiNeedsUpdate = true;
+            setTimeout(function () {
+                self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CACHESIZE') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+            }, 500);
+        } else {
+            confData.cachesize = self.minmax('CACHESIZE', confData.cachesize, minmax[4]);
+            if (peppy_config.current['cache.size'] != confData.cachesize) {
+                peppy_config.current['cache.size'] = confData.cachesize;
+                noChanges = false;
+            }
         }
     }
     

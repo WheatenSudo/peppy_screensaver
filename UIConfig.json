@@ -25,8 +25,6 @@
                                       "position_x",
                                       "position_y",
                                       "animation",
-                                      "needleCache",
-                                      "cachesize",
                                       "mouseEnabled",
                                       "displayOutput",
                                       "doNotDeleteThemes",
@@ -176,28 +174,6 @@
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.ANIMATION_DOC",
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.ANIMATION",
                              "value": true
-                            },
-                            {
-                             "id": "needleCache",
-                             "element": "switch",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.NEEDLE_CACHE_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.NEEDLE_CACHE",
-                             "value": true
-                            },
-                            {
-                             "id": "cachesize",
-                             "element": "input",
-                             "type": "number",
-                             "visibleIf": {"field": "needleCache", "value": true},
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.CACHESIZE_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.CACHESIZE",
-                             "attributes": [
-                                             {"placeholder": 20},
-                                             {"maxlength": 2},
-                                             {"min": 2},
-                                             {"max": 99}
-                                           ],
-                             "value": 20
                             },
                             {
                              "id": "mouseEnabled",
@@ -481,7 +457,9 @@
                               "data": [
                                       "frameRate",
                                       "updateInterval",
-                                      "meterDelay"
+                                      "meterDelay",
+                                      "needleCache",
+                                      "cachesize"
                                       ]
                               },
                 "content": [
@@ -526,6 +504,28 @@
                                              {"max": 20}
                                            ],
                              "value": 10
+                            },
+                            {
+                             "id": "needleCache",
+                             "element": "switch",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.NEEDLE_CACHE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.NEEDLE_CACHE",
+                             "value": true
+                            },
+                            {
+                             "id": "cachesize",
+                             "element": "input",
+                             "type": "number",
+                             "visibleIf": {"field": "needleCache", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.CACHESIZE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.CACHESIZE",
+                             "attributes": [
+                                             {"placeholder": 20},
+                                             {"maxlength": 2},
+                                             {"min": 2},
+                                             {"max": 99}
+                                           ],
+                             "value": 20
                             }
                             ]
                 },
