@@ -1435,12 +1435,7 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
                 noChanges = false;
             }
         }
-        // write animation
-        var animation = confData.animation? 'True' : 'False';
-        if (peppy_config.current['start.animation'] != animation) {
-            peppy_config.current['start.animation'] = animation;
-            noChanges = false;
-        }
+        // (animation on/off moved to the Animation section -> saveAnimationConf)
         // write use system fonts
         var useSystemFonts = confData.useSystemFonts ? 'True' : 'False';
         if (peppy_config.current['use.system.fonts'] != useSystemFonts) {
@@ -1836,6 +1831,16 @@ peppyScreensaver.prototype.saveAnimationConf = function (confData) {
   uiNeedsUpdate = false;
   
   if (fs.existsSync(PeppyConf)){
+
+    // start/stop animation on/off (moved here from the global section). start.animation
+    // is only meaningful with SDL2, matching the control's visibility in getUIConfig.
+    if (use_SDL2) {
+        var startAnimation = confData.animation ? 'True' : 'False';
+        if (peppy_config.current['start.animation'] != startAnimation) {
+            peppy_config.current['start.animation'] = startAnimation;
+            noChanges = false;
+        }
+    }
     
     // write transition type
     var transitionType = confData.transitionType.value || 'fade';

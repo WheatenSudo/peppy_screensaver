@@ -24,7 +24,6 @@
                                       "positionType",
                                       "position_x",
                                       "position_y",
-                                      "animation",
                                       "mouseEnabled",
                                       "displayOutput",
                                       "doNotDeleteThemes",
@@ -167,13 +166,6 @@
                                              {"max": 2160}
                                            ],
                              "value": 0
-                            },
-                            {
-                             "id": "animation",
-                             "element": "switch",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.ANIMATION_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.ANIMATION",
-                             "value": true
                             },
                             {
                              "id": "mouseEnabled",
@@ -731,6 +723,7 @@
                 "saveButton": {
                               "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
                               "data": [
+                                      "animation",
                                       "transitionType",
                                       "transitionDuration",
                                       "transitionColor",
@@ -738,6 +731,13 @@
                                       ]
                               },
                 "content": [
+                            {
+                             "id": "animation",
+                             "element": "switch",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.ANIMATION_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.ANIMATION",
+                             "value": true
+                            },
                             {
                              "id": "transitionType",
                              "element": "select",
