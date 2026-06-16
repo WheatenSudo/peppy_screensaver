@@ -1302,23 +1302,8 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
   uiNeedsUpdate = false;
   let uiNeedsReboot = false;
 
-  // Do not delete themes: persist and sync flag file for install/uninstall scripts
-  var doNotDelete = confData.doNotDeleteThemes === true;
-  if (self.config.get('doNotDeleteThemes') !== doNotDelete) {
-    self.config.set('doNotDeleteThemes', doNotDelete);
-    noChanges = false;
-  }
-  try {
-    if (doNotDelete) {
-      if (!fs.existsSync(DATA_DIR)) { fs.mkdirSync(DATA_DIR, { recursive: true }); }
-      fs.writeFileSync(DATA_DIR + '/.preserve', '', 'utf8');
-    } else {
-      if (fs.existsSync(DATA_DIR + '/.preserve')) { fs.unlinkSync(DATA_DIR + '/.preserve'); }
-    }
-  } catch (e) {
-    self.logger.error(id + 'savePeppyMeterConf: failed to sync preserve-themes flag: ' + e.message);
-  }
-  
+  // (keep-themes flag moved to Themes & Artwork -> saveThemesArtwork)
+
   if (fs.existsSync(PeppyConf)){
     //var config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
 
@@ -1387,20 +1372,7 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         }
     }
    
-    // write active folder
-    if (peppy_config.current[meterFolderStr] !== confData.activeFolder.value) {
-        peppy_config.current[meterFolderStr] = confData.activeFolder.value;
-        spectrum_config.current[SpectrumFolderStr] = confData.activeFolder.value;
-        self.config.set('activeFolder', confData.activeFolder.value);
-        self.config.set('activeFolder_title', confData.activeFolder.label);
-        // reset active meter and save also
-        peppy_config.current.meter = 'random';
-        self.config.set('randomSelection', '');
-        noChanges = false;
-        uiNeedsUpdate = true;
-        self.checkMetersFile();
-    }
-
+    // (active theme folder moved to Themes & Artwork -> saveThemesArtwork)
 
     // write position type        
     var pos_type = use_SDL2 ? confData.positionType.value == 0? 'center' : 'manual' : 'center';
@@ -1436,12 +1408,7 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
             }
         }
         // (animation on/off moved to the Animation section -> saveAnimationConf)
-        // write use system fonts
-        var useSystemFonts = confData.useSystemFonts ? 'True' : 'False';
-        if (peppy_config.current['use.system.fonts'] != useSystemFonts) {
-            peppy_config.current['use.system.fonts'] = useSystemFonts;
-            noChanges = false;
-        }
+        // (use system fonts moved to Themes & Artwork -> saveThemesArtwork)
     }
     
     // SMB share access (stored in config.json only, not config.txt)
@@ -1452,19 +1419,9 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         noChanges = false;
     }
     
-    // write screen width/height
-    var dimensions = {'width':'', 'height':''};
-    var files = fs.readdirSync(base_folder_P + confData.activeFolder.value);
-    files.forEach(file => {
-        if (file.indexOf('-ext.') >= 0) {
-            dimensions = sizeOf(base_folder_P + confData.activeFolder.value + '/' + file);
-            files.length = 0;
-        }
-    });    
-    peppy_config.current['screen.width'] = dimensions.width;
-    peppy_config.current['screen.height'] = dimensions.height;
-    
-    
+    // (screen width/height detection moved to Themes & Artwork -> saveThemesArtwork,
+    //  since it follows the active theme folder)
+
     // (needle cache + cache size moved to Performance & Rendering -> savePerformanceConf)
     // (smooth buffer + meter sensitivity moved to the Meter section -> saveVUMeterConf)
 
@@ -3425,11 +3382,86 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     self.config.set('fanartTransition', transition);
     self.config.set('fanartTransitionMs', transitionMs);
 
+    // --- Theme + font settings that live in config.txt / config.json (moved here
+    //     from the old global section): keep-themes flag, active theme folder
+    //     (with spectrum mirror + screen size), and the system-fonts toggle. ---
+    var doNotDelete = data && data.doNotDeleteThemes === true;
+    if (self.config.get('doNotDeleteThemes') !== doNotDelete) {
+      self.config.set('doNotDeleteThemes', doNotDelete);
+    }
+    try {
+      if (doNotDelete) {
+        if (!fs.existsSync(DATA_DIR)) { fs.mkdirSync(DATA_DIR, { recursive: true }); }
+        fs.writeFileSync(DATA_DIR + '/.preserve', '', 'utf8');
+      } else {
+        if (fs.existsSync(DATA_DIR + '/.preserve')) { fs.unlinkSync(DATA_DIR + '/.preserve'); }
+      }
+    } catch (ePreserve) {
+      self.logger.error(id + 'saveThemesArtwork: failed to sync preserve-themes flag: ' + ePreserve.message);
+    }
+
+    var folderChanged = false;
+    if (fs.existsSync(PeppyConf)) {
+      var peppyChanged = false;
+      if (!spectrum_config && fs.existsSync(SpectrumConf)) {
+        spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+      }
+
+      // active theme folder (+ spectrum mirror, meter reset, screen size)
+      if (data && data.activeFolder && peppy_config.current[meterFolderStr] !== data.activeFolder.value) {
+        peppy_config.current[meterFolderStr] = data.activeFolder.value;
+        if (spectrum_config) { spectrum_config.current[SpectrumFolderStr] = data.activeFolder.value; }
+        self.config.set('activeFolder', data.activeFolder.value);
+        self.config.set('activeFolder_title', data.activeFolder.label);
+        peppy_config.current.meter = 'random';
+        self.config.set('randomSelection', '');
+        self.checkMetersFile();
+
+        // screen width/height from the active folder's -ext image
+        var dimensions = { 'width': '', 'height': '' };
+        try {
+          var files = fs.readdirSync(base_folder_P + data.activeFolder.value);
+          files.forEach(function (file) {
+            if (file.indexOf('-ext.') >= 0) {
+              dimensions = sizeOf(base_folder_P + data.activeFolder.value + '/' + file);
+              files.length = 0;
+            }
+          });
+        } catch (eDim) {
+          self.logger.error(id + 'saveThemesArtwork: screen size detect failed: ' + eDim.message);
+        }
+        peppy_config.current['screen.width'] = dimensions.width;
+        peppy_config.current['screen.height'] = dimensions.height;
+
+        peppyChanged = true;
+        folderChanged = true;
+        if (spectrum_config) {
+          fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, { whitespace: true }));
+        }
+      }
+
+      // use system fonts (SDL2 only, matching the prior global-section behaviour)
+      if (use_SDL2) {
+        var useSystemFonts = (data && data.useSystemFonts) ? 'True' : 'False';
+        if (peppy_config.current['use.system.fonts'] != useSystemFonts) {
+          peppy_config.current['use.system.fonts'] = useSystemFonts;
+          peppyChanged = true;
+        }
+      }
+
+      if (peppyChanged) {
+        fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, { whitespace: true }));
+      }
+    }
+
     // Bump the config version (so remote clients pick up the change) and remove the
     // run flag so the running screensaver reloads and applies the new artwork
     // settings immediately, consistent with the other settings sections.
     try { self.updateConfigVersion(); } catch (e) {}
     if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
+    // A folder switch resets the active meter to random / refreshes options, so the
+    // settings page must be refreshed to reflect the new state.
+    if (folderChanged) { try { self.updateUIConfig(); } catch (eUi) {} }
 
     self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEMES_ARTWORK_SAVED'));
   } catch (e) {

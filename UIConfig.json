@@ -20,14 +20,11 @@
                                       "useUSBDAC",
                                       "useAirplay",
                                       "timeout",
-                                      "activeFolder",
                                       "positionType",
                                       "position_x",
                                       "position_y",
                                       "mouseEnabled",
                                       "displayOutput",
-                                      "doNotDeleteThemes",
-                                      "useSystemFonts",
                                       "smbShareAccess"
                                       ]
                               },
@@ -94,31 +91,6 @@
                                              {"max": 3600}
                                            ],
                              "value": 15
-                            },
-                            {
-                             "id": "activeFolder",
-                             "element": "select",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.ACTIVE_FOLDER_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.ACTIVE_FOLDER",
-                             "value": {"value": "480x320", "label": "BuildIn 480x320" },
-                               "options": [
-                                 {
-                                    "value": "320x240",
-                                    "label": "BuildIn 320x240"
-                                 },
-                                 {
-                                    "value": "480x320",
-                                    "label": "BuildIn 480x320"
-                                 },
-                                 {
-                                    "value": "800x480",
-                                    "label": "BuildIn 800x480"
-                                 },
-                                 {
-                                    "value": "1280x400",
-                                    "label": "BuildIn 1280x400"
-                                 }
-                               ]
                             },
                             {
                              "id": "positionType",
@@ -192,20 +164,6 @@
                                ]
                             },
                             {
-                             "id": "doNotDeleteThemes",
-                             "element": "switch",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.DO_NOT_DELETE_THEMES_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.DO_NOT_DELETE_THEMES",
-                             "value": false
-                            },
-                            {
-                             "id": "useSystemFonts",
-                             "element": "switch",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.USE_SYSTEM_FONTS_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.USE_SYSTEM_FONTS",
-                             "value": false
-                            },
-                            {
                              "id": "smbShareAccess",
                              "element": "switch",
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.SMB_SHARE_ACCESS_DOC",
@@ -225,16 +183,44 @@
                 "saveButton": {
                               "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
                               "data": [
+                                      "activeFolder",
                                       "themeToRemove",
+                                      "doNotDeleteThemes",
                                       "fanartEnabled",
                                       "fanartKeyMode",
                                       "fanart_personal_key",
                                       "fanartInterval",
                                       "fanartTransition",
-                                      "fanartTransitionMs"
+                                      "fanartTransitionMs",
+                                      "useSystemFonts"
                                       ]
                               },
                 "content": [
+                            {
+                             "id": "activeFolder",
+                             "element": "select",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.ACTIVE_FOLDER_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.ACTIVE_FOLDER",
+                             "value": {"value": "480x320", "label": "BuildIn 480x320" },
+                               "options": [
+                                 {
+                                    "value": "320x240",
+                                    "label": "BuildIn 320x240"
+                                 },
+                                 {
+                                    "value": "480x320",
+                                    "label": "BuildIn 480x320"
+                                 },
+                                 {
+                                    "value": "800x480",
+                                    "label": "BuildIn 800x480"
+                                 },
+                                 {
+                                    "value": "1280x400",
+                                    "label": "BuildIn 1280x400"
+                                 }
+                               ]
+                            },
                             {
                              "id": "browseThemes",
                              "element": "button",
@@ -253,6 +239,13 @@
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.THEME_REMOVE_LABEL",
                              "value": {"value": "", "label": "" },
                              "options": []
+                            },
+                            {
+                             "id": "doNotDeleteThemes",
+                             "element": "switch",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.DO_NOT_DELETE_THEMES_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.DO_NOT_DELETE_THEMES",
+                             "value": false
                             },
                             {
                              "id": "fanartEnabled",
@@ -324,6 +317,13 @@
                                              {"max": 3000}
                                            ],
                              "value": 600
+                            },
+                            {
+                             "id": "useSystemFonts",
+                             "element": "switch",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.USE_SYSTEM_FONTS_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.USE_SYSTEM_FONTS",
+                             "value": false
                             }
                            ]
                 },
