@@ -1065,7 +1065,8 @@ peppyScreensaver.prototype.getUIConfig = function() {
             }
             
             // transition duration
-            var transitionDuration = parseFloat(peppy_config.current['transition.duration']) || 0.5;
+            var transitionDuration = parseFloat(peppy_config.current['transition.duration']);
+            if (isNaN(transitionDuration)) { transitionDuration = 0.5; }
             C('transitionDuration').value = transitionDuration;
             minmax[9] = [C('transitionDuration').attributes[2].min,
                 C('transitionDuration').attributes[3].max,
@@ -1108,21 +1109,24 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 C('rotationFPS').attributes[0].placeholder];
             
             // rotation speed (vinyl multiplier)
-            var rotationSpeed = parseFloat(peppy_config.current['rotation.speed']) || 1.0;
+            var rotationSpeed = parseFloat(peppy_config.current['rotation.speed']);
+            if (isNaN(rotationSpeed)) { rotationSpeed = 1.0; }
             C('rotationSpeed').value = rotationSpeed;
             minmax[12] = [C('rotationSpeed').attributes[2].min,
                 C('rotationSpeed').attributes[3].max,
                 C('rotationSpeed').attributes[0].placeholder];
             
             // spool left speed (cassette multiplier)
-            var spoolLeftSpeed = parseFloat(peppy_config.current['spool.left.speed']) || 1.0;
+            var spoolLeftSpeed = parseFloat(peppy_config.current['spool.left.speed']);
+            if (isNaN(spoolLeftSpeed)) { spoolLeftSpeed = 1.0; }
             C('spoolLeftSpeed').value = spoolLeftSpeed;
             minmax[13] = [C('spoolLeftSpeed').attributes[2].min,
                 C('spoolLeftSpeed').attributes[3].max,
                 C('spoolLeftSpeed').attributes[0].placeholder];
             
             // spool right speed (cassette multiplier)
-            var spoolRightSpeed = parseFloat(peppy_config.current['spool.right.speed']) || 1.0;
+            var spoolRightSpeed = parseFloat(peppy_config.current['spool.right.speed']);
+            if (isNaN(spoolRightSpeed)) { spoolRightSpeed = 1.0; }
             C('spoolRightSpeed').value = spoolRightSpeed;
             minmax[14] = [C('spoolRightSpeed').attributes[2].min,
                 C('spoolRightSpeed').attributes[3].max,
@@ -1829,7 +1833,7 @@ peppyScreensaver.prototype.saveAnimationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.TRANSITION_DURATION') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.transitionDuration = self.minmax('TRANSITION_DURATION', confData.transitionDuration, minmax[9]);
+        confData.transitionDuration = self.minmax('TRANSITION_DURATION', confData.transitionDuration, minmax[9], true);
         if (peppy_config.current['transition.duration'] != confData.transitionDuration) {
             peppy_config.current['transition.duration'] = confData.transitionDuration;
             noChanges = false;
@@ -1920,7 +1924,7 @@ peppyScreensaver.prototype.saveRotationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ROTATION_SPEED') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.rotationSpeed = self.minmax('ROTATION_SPEED', confData.rotationSpeed, minmax[12]);
+        confData.rotationSpeed = self.minmax('ROTATION_SPEED', confData.rotationSpeed, minmax[12], true);
         if (peppy_config.current['rotation.speed'] != confData.rotationSpeed) {
             peppy_config.current['rotation.speed'] = confData.rotationSpeed;
             noChanges = false;
@@ -1934,7 +1938,7 @@ peppyScreensaver.prototype.saveRotationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SPOOL_LEFT_SPEED') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.spoolLeftSpeed = self.minmax('SPOOL_LEFT_SPEED', confData.spoolLeftSpeed, minmax[13]);
+        confData.spoolLeftSpeed = self.minmax('SPOOL_LEFT_SPEED', confData.spoolLeftSpeed, minmax[13], true);
         if (peppy_config.current['spool.left.speed'] != confData.spoolLeftSpeed) {
             peppy_config.current['spool.left.speed'] = confData.spoolLeftSpeed;
             noChanges = false;
@@ -1948,7 +1952,7 @@ peppyScreensaver.prototype.saveRotationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SPOOL_RIGHT_SPEED') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.spoolRightSpeed = self.minmax('SPOOL_RIGHT_SPEED', confData.spoolRightSpeed, minmax[14]);
+        confData.spoolRightSpeed = self.minmax('SPOOL_RIGHT_SPEED', confData.spoolRightSpeed, minmax[14], true);
         if (peppy_config.current['spool.right.speed'] != confData.spoolRightSpeed) {
             peppy_config.current['spool.right.speed'] = confData.spoolRightSpeed;
             noChanges = false;
@@ -3728,27 +3732,32 @@ peppyScreensaver.prototype.showThemeGallery = function () {
 
 // global functions
 //-------------------------------------------------------------
-peppyScreensaver.prototype.minmax = function (item, value, attrib) {
+// Clamp `value` to [attrib[0], attrib[1]] (placeholder attrib[2] on invalid input).
+// isFloat=true preserves fractional values (e.g. transition.duration, rotation.speed);
+// otherwise the value is coerced to an integer. Note: parseInt truncates floats, so
+// float fields MUST pass isFloat=true or values like 0.5 silently become 0.
+peppyScreensaver.prototype.minmax = function (item, value, attrib, isFloat) {
   var self = this;
-  if (Number.isNaN(parseInt(value, 10)) || !isFinite(value)) {
+  var num = isFloat ? parseFloat(value) : parseInt(value, 10);
+  if (Number.isNaN(num) || !isFinite(value)) {
       uiNeedsUpdate = true;
       return attrib[2];
   }
-    if (value < attrib[0]) {
+    if (num < attrib[0]) {
         setTimeout(function () {
             self.commandRouter.pushToastMessage("info", self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.' + item.toUpperCase()) + ': ' + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.INFO_MIN'));
         }, 700);        
         uiNeedsUpdate = true;
         return attrib[0];
     }
-    if (value > attrib[1]) {
+    if (num > attrib[1]) {
         setTimeout(function () {
             self.commandRouter.pushToastMessage("info", self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.' + item.toUpperCase()) + ': ' + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.INFO_MAX'));
         }, 700); 
         uiNeedsUpdate = true;
         return attrib[1];
     }
-    return parseInt(value, 10);
+    return num;
 };
 
 peppyScreensaver.prototype.updateUIConfig = function () {
