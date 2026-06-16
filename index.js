@@ -1294,87 +1294,110 @@ peppyScreensaver.prototype.getConfigurationFiles = function() {
 	return ['config.json'];
 };
 
-// called when 'save' button pressed on global settings
+// Audio Source save handler (split out of the old global section). Selects which
+// audio stream the meters react to (ALSA capture / DSP / Spotify / AirPlay). All of
+// these live in config.json and may trigger an ALSA rebuild; a change reloads the
+// meter so it captures from the new source.
 //-------------------------------------------------------
-peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
+peppyScreensaver.prototype.saveAudioSourceConf = function (confData) {
+  const self = this;
+  let noChanges = true;
+  let uiNeedsReboot = false;
+
+  // write DSP
+  if (self.config.get('useDSP') != confData.useDSP) {
+      alsaLog(self.logger, 'basic', 'saveAudioSourceConf: useDSP toggled ' + self.config.get('useDSP') + ' -> ' + confData.useDSP);
+      self.config.set('useDSP', confData.useDSP);
+      self.checkDSPactive(!confData.useDSP);
+      self.switch_Spotify(!confData.useDSP);
+      noChanges = false;
+      uiNeedsReboot = true;
+  }
+
+  // write alsa selection
+  if (confData.useDSP) {
+      self.config.set('alsaSelection', 0);
+  } else if (self.config.get('alsaSelection') != confData.alsaSelection.value) {
+      self.config.set('alsaSelection', confData.alsaSelection.value);
+      noChanges = false;
+      uiNeedsReboot = true;
+  }
+
+  // write spotify / USB-DAC
+  if (self.getPluginStatus ('music_service', 'spop') === 'STARTED') {
+      if (confData.useDSP) {
+          self.config.set('useSpotify', false);
+      } else {
+          if (self.config.get('useSpotify') != confData.useSpotify) {
+              self.config.set('useSpotify', confData.useSpotify);
+              noChanges = false;
+              uiNeedsReboot = true;
+          }
+          if (self.config.get('useUSBDAC') != confData.useUSBDAC) {
+              self.config.set('useUSBDAC', confData.useUSBDAC);
+              noChanges = false;
+              uiNeedsReboot = true;
+          }
+      }
+  }
+
+  // write airplay
+  if (self.getPluginStatus ('music_service', 'airplay_emulation') === 'STARTED'){
+      if (confData.useDSP) {
+          self.config.set('useAirplay', false);
+          self.switch_Airplay(false);
+      } else if (self.config.get('useAirplay') != confData.useAirplay) {
+          self.config.set('useAirplay', confData.useAirplay);
+          self.switch_Airplay(confData.useAirplay);
+          noChanges = false;
+      }
+  }
+
+  if (!noChanges) {
+      // Reload the meter so it captures from the newly selected source
+      if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
+  }
+  if (uiNeedsReboot) {
+      alsaLog(self.logger, 'basic', 'saveAudioSourceConf: triggering ALSA rebuild (alsaSelection=' + self.config.get('alsaSelection') + ')');
+      self.switch_alsaConfig(parseInt(self.config.get('alsaSelection'),10));
+  }
+
+  setTimeout(function () {
+    if (noChanges) {
+        self.commandRouter.pushToastMessage('info', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+    } else {
+        self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+    }
+  }, 500);
+}; // end saveAudioSourceConf ----------------------------
+
+// Display & Activation save handler (split out of the old global section). Covers the
+// screensaver activation timeout (config.json), on-screen position + mouse pointer
+// (config.txt, SDL2) and the display output (config.json). Any change reloads the
+// running meter so it is re-rendered with the new geometry/output.
+//-------------------------------------------------------
+peppyScreensaver.prototype.saveDisplayConf = function (confData) {
   const self = this;
   let noChanges = true;
   uiNeedsUpdate = false;
-  let uiNeedsReboot = false;
 
-  // (keep-themes flag moved to Themes & Artwork -> saveThemesArtwork)
+  // write timeout (config.json)
+  if (Number.isNaN(parseInt(confData.timeout, 10)) || !isFinite(confData.timeout)) {
+      uiNeedsUpdate = true;
+      setTimeout(function () {
+          self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.TIMEOUT') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+      }, 500);
+  } else {
+      confData.timeout = self.minmax('TIMEOUT', confData.timeout, minmax[0]);
+      if (confData.timeout != self.config.get('timeout')){
+          self.config.set('timeout', confData.timeout);
+          noChanges = false;
+      }
+  }
 
   if (fs.existsSync(PeppyConf)){
-    //var config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
 
-    // write DSP
-    if (self.config.get('useDSP') != confData.useDSP) {
-        alsaLog(self.logger, 'basic', 'savePeppyMeterConf: useDSP toggled ' + self.config.get('useDSP') + ' -> ' + confData.useDSP);
-        self.config.set('useDSP', confData.useDSP);
-        self.checkDSPactive(!confData.useDSP);
-        self.switch_Spotify(!confData.useDSP);
-        noChanges = false;
-        uiNeedsReboot = true;
-    }
-    
-    // write alsa selection
-    if (confData.useDSP) {
-        self.config.set('alsaSelection', 0);
-    } else if (self.config.get('alsaSelection') != confData.alsaSelection.value) {
-        self.config.set('alsaSelection', confData.alsaSelection.value);
-        noChanges = false;
-        uiNeedsReboot = true;
-    }
-
-    // write spotify /USB-DAC
-    if (self.getPluginStatus ('music_service', 'spop') === 'STARTED') {
-        if (confData.useDSP) {
-            self.config.set('useSpotify', false);
-            //self.switch_Spotify(false);
-        } else {
-            if (self.config.get('useSpotify') != confData.useSpotify) {
-                self.config.set('useSpotify', confData.useSpotify);
-                //self.switch_Spotify(confData.useSpotify);
-                noChanges = false;
-                uiNeedsReboot = true;
-            }
-            if (self.config.get('useUSBDAC') != confData.useUSBDAC) {
-                self.config.set('useUSBDAC', confData.useUSBDAC);
-                noChanges = false;
-                uiNeedsReboot = true;
-            }
-        }
-    }
-    
-    // write airplay
-    if (self.getPluginStatus ('music_service', 'airplay_emulation') === 'STARTED'){
-        if (confData.useDSP) {
-            self.config.set('useAirplay', false);
-            self.switch_Airplay(false);
-        } else if (self.config.get('useAirplay') != confData.useAirplay) {
-            self.config.set('useAirplay', confData.useAirplay);
-            self.switch_Airplay(confData.useAirplay);
-            noChanges = false;
-        }
-    }
-    
-    // write timeout
-    if (Number.isNaN(parseInt(confData.timeout, 10)) || !isFinite(confData.timeout)) {
-        uiNeedsUpdate = true;
-        setTimeout(function () {
-            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.TIMEOUT') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-        }, 500);
-    } else {
-        confData.timeout = self.minmax('TIMEOUT', confData.timeout, minmax[0]);
-        if (confData.timeout != self.config.get('timeout')){        
-            self.config.set('timeout', confData.timeout);
-            noChanges = false;
-        }
-    }
-   
-    // (active theme folder moved to Themes & Artwork -> saveThemesArtwork)
-
-    // write position type        
+    // write position type
     var pos_type = use_SDL2 ? confData.positionType.value == 0? 'center' : 'manual' : 'center';
     if (peppy_config.current['position.type'] !== pos_type) {
         peppy_config.current['position.type'] = pos_type;
@@ -1407,17 +1430,7 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
                 noChanges = false;
             }
         }
-        // (animation on/off moved to the Animation section -> saveAnimationConf)
-        // (use system fonts moved to Themes & Artwork -> saveThemesArtwork)
     }
-    
-    // (SMB share access moved to the Template File Sharing section -> saveSmbShareConf)
-
-    // (screen width/height detection moved to Themes & Artwork -> saveThemesArtwork,
-    //  since it follows the active theme folder)
-
-    // (needle cache + cache size moved to Performance & Rendering -> savePerformanceConf)
-    // (smooth buffer + meter sensitivity moved to the Meter section -> saveVUMeterConf)
 
     // write mouse support
     var mouseSupport = confData.mouseEnabled? 'True' : 'False';
@@ -1426,38 +1439,24 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         noChanges = false;
     }
 
-    // write display port
+    // write display port (config.json + live switch)
     if (self.config.get('displayOutput') != confData.displayOutput.value) {
         self.config.set('displayOutput', confData.displayOutput.value);
         var DispOut = parseInt(confData.displayOutput.value,10);
         self.switch_DisplayPort(DispOut);
         noChanges = false;
     }
-        
+
     if (!noChanges) {
         fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, {whitespace: true}));
-        fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, {whitespace: true}));
         // Restart meter to apply new settings
         if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
-        // unmount /tmp/config to make changes permanent
-        //self.unmount_tmpl(SpectrumConf)
-        //    .then(function() {
-        //        fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, {whitespace: true}));
-        //        fs.copySync(SpectrumConf, SpectrumTmp); // copy orignal template file to /tmp
-        //        self.mount_tmpl(SpectrumTmp, SpectrumConf); // mount over original template
-        //    }
-        //);
     }
   } else {
       self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));
   }
-  
+
   if (uiNeedsUpdate) {self.updateUIConfig();}
-  if (uiNeedsReboot) {
-      alsaLog(self.logger, 'basic', 'savePeppyMeterConf: triggering ALSA rebuild (alsaSelection=' + self.config.get('alsaSelection') + ')');
-      self.switch_alsaConfig(parseInt(self.config.get('alsaSelection'),10));
-      //self.rebootMessage();}
-  }
 
   setTimeout(function () {
     if (noChanges) {
@@ -1466,8 +1465,7 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
     }
   }, 500);
-  
-}; // end savePeppyMeterConf ----------------------------
+}; // end saveDisplayConf ----------------------------
 
 // Template File Sharing (SMB) save handler.
 // Only toggles config.json + filesystem permissions used for sharing templates over

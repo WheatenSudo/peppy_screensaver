@@ -4,13 +4,13 @@
   },
   "sections": [
                 {
-                "id": "peppymeter_conf",
+                "id": "audio_source_conf",
                 "element": "section",
-                "label": "TRANSLATE.PEPPY_SCREENSAVER.PEPPYMETER_CONF",
-                "description": "TRANSLATE.PEPPY_SCREENSAVER.PEPPYMETER_DESC",
-                "icon": "fa-gears",
+                "label": "TRANSLATE.PEPPY_SCREENSAVER.AUDIO_SOURCE_CONF",
+                "description": "TRANSLATE.PEPPY_SCREENSAVER.AUDIO_SOURCE_DESC",
+                "icon": "fa-music",
                 "hidden": false,
-                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"savePeppyMeterConf"},
+                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"saveAudioSourceConf"},
                 "saveButton": {
                               "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
                               "data": [
@@ -18,13 +18,7 @@
                                       "useDSP",
                                       "useSpotify",
                                       "useUSBDAC",
-                                      "useAirplay",
-                                      "timeout",
-                                      "positionType",
-                                      "position_x",
-                                      "position_y",
-                                      "mouseEnabled",
-                                      "displayOutput"
+                                      "useAirplay"
                                       ]
                               },
                 "content": [
@@ -76,7 +70,29 @@
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.AIRPLAY_DOC",
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.AIRPLAY",
                              "value": false
-                            },
+                            }
+                ]
+            },
+                {
+                "id": "display_conf",
+                "element": "section",
+                "label": "TRANSLATE.PEPPY_SCREENSAVER.DISPLAY_CONF",
+                "description": "TRANSLATE.PEPPY_SCREENSAVER.DISPLAY_DESC",
+                "icon": "fa-desktop",
+                "hidden": false,
+                "onSave": {"type":"controller", "endpoint":"user_interface/peppy_screensaver", "method":"saveDisplayConf"},
+                "saveButton": {
+                              "label": "TRANSLATE.PEPPY_SCREENSAVER.APPLY",
+                              "data": [
+                                      "timeout",
+                                      "positionType",
+                                      "position_x",
+                                      "position_y",
+                                      "mouseEnabled",
+                                      "displayOutput"
+                                      ]
+                              },
+                "content": [
                             {
                              "id": "timeout",
                              "element": "input",
