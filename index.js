@@ -682,7 +682,22 @@ peppyScreensaver.prototype.getUIConfig = function() {
         __dirname + '/UIConfig.json')
         .then(function(uiconf)
         {
-        
+
+        // Resolve a control by its (now unique) id, independent of which section or
+        // position it occupies. This keeps getUIConfig correct across settings
+        // reorganisation (no hard-coded sections[N].content[M] indices to drift).
+        var C = function (controlId) {
+            for (var _si = 0; _si < uiconf.sections.length; _si++) {
+                var _content = uiconf.sections[_si] && uiconf.sections[_si].content;
+                if (!_content) { continue; }
+                for (var _ci = 0; _ci < _content.length; _ci++) {
+                    if (_content[_ci] && _content[_ci].id === controlId) { return _content[_ci]; }
+                }
+            }
+            self.logger.error(id + 'getUIConfig: control id not found: ' + controlId);
+            return { value: {}, options: [], attributes: [{}, {}, {}, {}] };
+        };
+
         // section 0 -----------------------------        
         if (fs.existsSync(PeppyConf)){
             // read values from ini
@@ -692,21 +707,21 @@ peppyScreensaver.prototype.getUIConfig = function() {
             
             var alsaconf = parseInt(self.config.get('alsaSelection'),10);
                 if (self.config.get('useDSP')) {
-                    uiconf.sections[0].content[0].value.value = 0;
-                    uiconf.sections[0].content[0].value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_0');
+                    C('alsaSelection').value.value = 0;
+                    C('alsaSelection').value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_0');
                 } else {
-                    uiconf.sections[0].content[0].value.value = alsaconf;
-                    uiconf.sections[0].content[0].value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_' + self.config.get('alsaSelection'));
+                    C('alsaSelection').value.value = alsaconf;
+                    C('alsaSelection').value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_' + self.config.get('alsaSelection'));
                 }
                 
                 // Dsp integration
                 if (fs.existsSync(dsp_config)){
                     var useDSP = self.config.get('useDSP');
-                    uiconf.sections[0].content[1].value = useDSP;
+                    C('useDSP').value = useDSP;
                     self.checkDSPactive(!useDSP);
                 } else {
                     self.config.set('useDSP', false);
-                    uiconf.sections[0].content[1].hidden = true;
+                    C('useDSP').hidden = true;
                 }
                 // Spotify integration
                 if (fs.existsSync(spotify_config)){
@@ -714,34 +729,34 @@ peppyScreensaver.prototype.getUIConfig = function() {
                         if (self.config.get('useDSP')) {
                             self.config.set('useSpotify', false);
                         } else {
-                            uiconf.sections[0].content[2].value = self.config.get('useSpotify');
-                            uiconf.sections[0].content[3].value = self.config.get('useUSBDAC');
+                            C('useSpotify').value = self.config.get('useSpotify');
+                            C('useUSBDAC').value = self.config.get('useUSBDAC');
                         }
                     } else {
-                        uiconf.sections[0].content[2].hidden = true; // hide spotify
-                        uiconf.sections[0].content[3].hidden = true; // hide USB-DAC
+                        C('useSpotify').hidden = true; // hide spotify
+                        C('useUSBDAC').hidden = true; // hide USB-DAC
                     }
                 } else {
                     self.config.set('useSpotify', false);
-                    uiconf.sections[0].content[2].hidden = true;
-                    uiconf.sections[0].content[3].hidden = true;
+                    C('useSpotify').hidden = true;
+                    C('useUSBDAC').hidden = true;
                 }
                 // Airplay integration
                 if (self.getPluginStatus ('music_service', 'airplay_emulation') === 'STARTED'){
                     if (self.config.get('useDSP')) {
                         self.config.set('useAirplay', false);
                     } else {
-                        uiconf.sections[0].content[4].value = self.config.get('useAirplay');
+                        C('useAirplay').value = self.config.get('useAirplay');
                     }
                 } else {
-                    uiconf.sections[0].content[4].hidden = true;
+                    C('useAirplay').hidden = true;
                 }
             
             // screensaver timeout
-            uiconf.sections[0].content[5].value = self.config.get('timeout');
-            minmax[0] = [uiconf.sections[0].content[5].attributes[2].min,
-                uiconf.sections[0].content[5].attributes[3].max,
-                uiconf.sections[0].content[5].attributes[0].placeholder];
+            C('timeout').value = self.config.get('timeout');
+            minmax[0] = [C('timeout').attributes[2].min,
+                C('timeout').attributes[3].max,
+                C('timeout').attributes[0].placeholder];
             
             // Theme-to-remove: empty placeholder first so nothing is pre-selected for deletion
             self.configManager.pushUIConfigParam(uiconf, 'sections[1].content[1].options', {
