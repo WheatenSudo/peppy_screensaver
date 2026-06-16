@@ -4760,8 +4760,8 @@ peppyScreensaver.prototype.deleteSettingsBackup = function (data) {
     
     try {
         var backupName = '';
-        if (data && data.selectedBackup) {
-            backupName = (typeof data.selectedBackup === 'object') ? data.selectedBackup.value : String(data.selectedBackup);
+        if (data && data.selectedBackupDelete) {
+            backupName = (typeof data.selectedBackupDelete === 'object') ? data.selectedBackupDelete.value : String(data.selectedBackupDelete);
         }
         backupName = (backupName || '').trim();
         

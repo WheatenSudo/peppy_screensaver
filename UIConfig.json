@@ -1046,12 +1046,12 @@
                 "saveButton": {
                               "label": "TRANSLATE.PEPPY_SCREENSAVER.BACKUP_DELETE",
                               "data": [
-                                      "selectedBackup"
+                                      "selectedBackupDelete"
                                       ]
                               },
                 "content": [
                             {
-                             "id": "selectedBackup",
+                             "id": "selectedBackupDelete",
                              "element": "select",
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.BACKUP_SELECTED_DOC",
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.BACKUP_SELECTED",
