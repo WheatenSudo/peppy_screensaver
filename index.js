@@ -698,6 +698,22 @@ peppyScreensaver.prototype.getUIConfig = function() {
             return { value: {}, options: [], attributes: [{}, {}, {}, {}] };
         };
 
+        // Build the configManager path string ('sections[..].content[..].options') for a
+        // control by id, so pushUIConfigParam stays position-independent too.
+        var P = function (controlId) {
+            for (var _si = 0; _si < uiconf.sections.length; _si++) {
+                var _content = uiconf.sections[_si] && uiconf.sections[_si].content;
+                if (!_content) { continue; }
+                for (var _ci = 0; _ci < _content.length; _ci++) {
+                    if (_content[_ci] && _content[_ci].id === controlId) {
+                        return 'sections[' + _si + '].content[' + _ci + '].options';
+                    }
+                }
+            }
+            self.logger.error(id + 'getUIConfig: option-path id not found: ' + controlId);
+            return 'sections[' + 0 + '].content[' + 0 + '].options';
+        };
+
         // section 0 -----------------------------        
         if (fs.existsSync(PeppyConf)){
             // read values from ini
@@ -759,7 +775,7 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 C('timeout').attributes[0].placeholder];
             
             // Theme-to-remove: empty placeholder first so nothing is pre-selected for deletion
-            self.configManager.pushUIConfigParam(uiconf, 'sections[1].content[1].options', {
+            self.configManager.pushUIConfigParam(uiconf, P('themeToRemove'), {
                 value: '',
                 label: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE')
             });
@@ -772,122 +788,122 @@ peppyScreensaver.prototype.getUIConfig = function() {
                     var partFile = file.split('_');
                     var str_empty = fs.existsSync(base_folder_P + file + '/meters.txt') ? '' : ' (empty)';
                     var folderLabel = (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty;
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[0].content[6].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('activeFolder'), {
                         value: file,
                         label: folderLabel
                     });
                     // Theme gallery section (sections[1]): populate the "theme to remove" dropdown
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[1].content[1].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('themeToRemove'), {
                         value: file,
                         label: folderLabel
                     });
                 }
             });
             // Default the remove dropdown to the empty placeholder (no destructive pre-selection)
-            uiconf.sections[1].content[1].value.value = '';
-            uiconf.sections[1].content[1].value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE');
+            C('themeToRemove').value.value = '';
+            C('themeToRemove').value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE');
             // Artwork: artist fanart slideshow controls (Item 6)
-            uiconf.sections[1].content[2].value = self.config.get('fanartEnabled') === true;
+            C('fanartEnabled').value = self.config.get('fanartEnabled') === true;
             var fanartKeyMode = self.config.get('fanartKeyMode') || 'personal';
-            uiconf.sections[1].content[3].value.value = fanartKeyMode;
-            uiconf.sections[1].content[3].value.label = self.commandRouter.getI18nString(fanartKeyMode === 'project' ? 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT' : 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL');
-            uiconf.sections[1].content[4].value = self.config.get('fanart_personal_key') || '';
-            uiconf.sections[1].content[5].value = parseInt(self.config.get('fanartInterval'), 10) || 0;
+            C('fanartKeyMode').value.value = fanartKeyMode;
+            C('fanartKeyMode').value.label = self.commandRouter.getI18nString(fanartKeyMode === 'project' ? 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT' : 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL');
+            C('fanart_personal_key').value = self.config.get('fanart_personal_key') || '';
+            C('fanartInterval').value = parseInt(self.config.get('fanartInterval'), 10) || 0;
             var fanartTransition = self.config.get('fanartTransition') || 'none';
             var fanartTransitionLabels = {none: 'PEPPY_SCREENSAVER.FANART_TRANSITION_NONE', fade: 'PEPPY_SCREENSAVER.FANART_TRANSITION_FADE', merge: 'PEPPY_SCREENSAVER.FANART_TRANSITION_MERGE'};
-            uiconf.sections[1].content[6].value.value = fanartTransition;
-            uiconf.sections[1].content[6].value.label = self.commandRouter.getI18nString(fanartTransitionLabels[fanartTransition] || fanartTransitionLabels.none);
-            uiconf.sections[1].content[7].value = parseInt(self.config.get('fanartTransitionMs'), 10) || 600;
+            C('fanartTransition').value.value = fanartTransition;
+            C('fanartTransition').value.label = self.commandRouter.getI18nString(fanartTransitionLabels[fanartTransition] || fanartTransitionLabels.none);
+            C('fanartTransitionMs').value = parseInt(self.config.get('fanartTransitionMs'), 10) || 600;
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
                 var partFile = meterFolder.split('_');
                 var str_empty = fs.existsSync(base_folder_P + meterFolder + '/meters.txt') ? '' : ' (empty)';
-                uiconf.sections[0].content[6].value.value = meterFolder;
-                uiconf.sections[0].content[6].value.label = (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty;
+                C('activeFolder').value.value = meterFolder;
+                C('activeFolder').value.label = (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty;
             } else {
-                uiconf.sections[0].content[6].value.value = self.config.get('activeFolder');
-                uiconf.sections[0].content[6].value.label = self.config.get('activeFolder_title');
+                C('activeFolder').value.value = self.config.get('activeFolder');
+                C('activeFolder').value.label = self.config.get('activeFolder_title');
             }
 
             if (use_SDL2) {
             // position type
                 if (peppy_config.current['position.type'] == 'center') { 
-                    uiconf.sections[0].content[7].value.value = 0;
-                    uiconf.sections[0].content[7].value.label = 'centered';
+                    C('positionType').value.value = 0;
+                    C('positionType').value.label = 'centered';
                 } else {
-                    uiconf.sections[0].content[7].value.value = 1;
-                    uiconf.sections[0].content[7].value.label = 'manually';
+                    C('positionType').value.value = 1;
+                    C('positionType').value.label = 'manually';
                 }
             // position x
-                uiconf.sections[0].content[8].value = parseInt(peppy_config.current['position.x'], 10);
-                minmax[1] = [uiconf.sections[0].content[8].attributes[2].min,
-                    uiconf.sections[0].content[8].attributes[3].max,
-                    uiconf.sections[0].content[8].attributes[0].placeholder];
+                C('position_x').value = parseInt(peppy_config.current['position.x'], 10);
+                minmax[1] = [C('position_x').attributes[2].min,
+                    C('position_x').attributes[3].max,
+                    C('position_x').attributes[0].placeholder];
             // position y
-                uiconf.sections[0].content[9].value = parseInt(peppy_config.current['position.y'], 10);
-                minmax[2] = [uiconf.sections[0].content[9].attributes[2].min,
-                    uiconf.sections[0].content[9].attributes[3].max,
-                    uiconf.sections[0].content[9].attributes[0].placeholder];
+                C('position_y').value = parseInt(peppy_config.current['position.y'], 10);
+                minmax[2] = [C('position_y').attributes[2].min,
+                    C('position_y').attributes[3].max,
+                    C('position_y').attributes[0].placeholder];
             // animation
                 var animation = (peppy_config.current['start.animation']).toLowerCase() == 'true' ? true : false;
-                uiconf.sections[0].content[10].value = animation;
+                C('animation').value = animation;
             } else {
-                uiconf.sections[0].content[7].hidden = true;
-                uiconf.sections[0].content[7].value.value = 0;
-                uiconf.sections[0].content[7].value.label = 'centered';
+                C('positionType').hidden = true;
+                C('positionType').value.value = 0;
+                C('positionType').value.label = 'centered';
 
-                uiconf.sections[0].content[10].hidden = true; // animation
-                uiconf.sections[0].content[10].value = false;
+                C('animation').hidden = true; // animation
+                C('animation').value = false;
             }
 
             // smooth buffer
-            uiconf.sections[0].content[11].value = parseInt(peppy_config.data.source['smooth.buffer.size'], 10);                                
-            minmax[3] = [uiconf.sections[0].content[11].attributes[2].min,
-                uiconf.sections[0].content[11].attributes[3].max,
-                uiconf.sections[0].content[11].attributes[0].placeholder];
+            C('smoothBuffer').value = parseInt(peppy_config.data.source['smooth.buffer.size'], 10);                                
+            minmax[3] = [C('smoothBuffer').attributes[2].min,
+                C('smoothBuffer').attributes[3].max,
+                C('smoothBuffer').attributes[0].placeholder];
 
             // for installed memory < 4Gb hide needle cache
             if (lt_4GB) {
-                uiconf.sections[0].content[12].hidden = true;
-                uiconf.sections[0].content[12].value = false;
+                C('needleCache').hidden = true;
+                C('needleCache').value = false;
             } else {
             // needle cache
                 var needleCache = (peppy_config.current['use.cache']).toLowerCase() == 'true' ? true : false;
-                uiconf.sections[0].content[12].value = needleCache;
+                C('needleCache').value = needleCache;
 
             // cache size
-                uiconf.sections[0].content[13].value = parseInt(peppy_config.current['cache.size'], 10);                                
-                minmax[4] = [uiconf.sections[0].content[13].attributes[2].min,
-                    uiconf.sections[0].content[13].attributes[3].max,
-                    uiconf.sections[0].content[13].attributes[0].placeholder];
+                C('cachesize').value = parseInt(peppy_config.current['cache.size'], 10);                                
+                minmax[4] = [C('cachesize').attributes[2].min,
+                    C('cachesize').attributes[3].max,
+                    C('cachesize').attributes[0].placeholder];
             }
 
             // meter sensitivity
-            uiconf.sections[0].content[14].value = parseInt(peppy_config.data.source['volume.gain.db'], 10) || 0;
-            minmax[15] = [uiconf.sections[0].content[14].attributes[2].min,
-                uiconf.sections[0].content[14].attributes[3].max,
-                uiconf.sections[0].content[14].attributes[0].placeholder];
+            C('meterGain').value = parseInt(peppy_config.data.source['volume.gain.db'], 10) || 0;
+            minmax[15] = [C('meterGain').attributes[2].min,
+                C('meterGain').attributes[3].max,
+                C('meterGain').attributes[0].placeholder];
             
             // mouse support
             var mouseSupport = (peppy_config.sdl.env['mouse.enabled']).toLowerCase() == 'true' ? true : false;
-            uiconf.sections[0].content[15].value = mouseSupport;
+            C('mouseEnabled').value = mouseSupport;
 
             // display output
-            uiconf.sections[0].content[16].value.value = self.config.get('displayOutput');
-            uiconf.sections[0].content[16].value.label = 'Display=' + self.config.get('displayOutput');
-            uiconf.sections[0].content[17].value = self.config.get('doNotDeleteThemes') === true;
+            C('displayOutput').value.value = self.config.get('displayOutput');
+            C('displayOutput').value.label = 'Display=' + self.config.get('displayOutput');
+            C('doNotDeleteThemes').value = self.config.get('doNotDeleteThemes') === true;
 
             // use system fonts (from config.txt, default false = use PeppyFont)
             var useSystemFonts = false;
             try {
                 useSystemFonts = (peppy_config.current['use.system.fonts'] || '').toLowerCase() === 'true';
             } catch (e) {}
-            uiconf.sections[0].content[18].value = useSystemFonts;
+            C('useSystemFonts').value = useSystemFonts;
 
             // SMB share access (from config.json, default false)
             var smbEnabled = self.config.get('smbShareAccess') === true;
-            uiconf.sections[0].content[19].value = smbEnabled;
+            C('smbShareAccess').value = smbEnabled;
             
             // Normalize template permissions on settings page access
             // Reclaims ownership from SMB-created files (nobody:nogroup -> volumio:volumio)
@@ -911,16 +927,16 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 '120': 'PEPPY_SCREENSAVER.PERSIST_120',
                 '300': 'PEPPY_SCREENSAVER.PERSIST_300'
             };
-            uiconf.sections[7].content[0].value.value = persistVal;
-            uiconf.sections[7].content[0].value.label = self.commandRouter.getI18nString(persistLabels[persistVal] || 'PEPPY_SCREENSAVER.PERSIST_30');
+            C('persist_duration').value.value = persistVal;
+            C('persist_duration').value.label = self.commandRouter.getI18nString(persistLabels[persistVal] || 'PEPPY_SCREENSAVER.PERSIST_30');
 
             var persistDisplayVal = self.config.get('persist_display') || 'freeze';
             var persistDisplayLabels = {
                 'freeze': 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE',
                 'countdown': 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_COUNTDOWN'
             };
-            uiconf.sections[7].content[1].value.value = persistDisplayVal;
-            uiconf.sections[7].content[1].value.label = self.commandRouter.getI18nString(persistDisplayLabels[persistDisplayVal] || 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE');
+            C('persist_display').value.value = persistDisplayVal;
+            C('persist_display').value.label = self.commandRouter.getI18nString(persistDisplayLabels[persistDisplayVal] || 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE');
 
             // queue mode (read from PeppyConf, fallback to config.json)
             var queueMode = 'track';
@@ -930,10 +946,10 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 queueMode = self.config.get('queue.mode') || 'track';
             }
             
-            var queueModeOptions = uiconf.sections[7].content[2].options;
+            var queueModeOptions = C('queueMode').options;
             for (var i = 0; i < queueModeOptions.length; i++) {
                 if (queueModeOptions[i].value === queueMode) {
-                    uiconf.sections[7].content[2].value = queueModeOptions[i];
+                    C('queueMode').value = queueModeOptions[i];
                     break;
                 }
             }
@@ -946,16 +962,16 @@ peppyScreensaver.prototype.getUIConfig = function() {
 
                 // current meter
                 if ((peppy_config.current.meter).includes(',')) {
-                    uiconf.sections[2].content[0].value.value = 'list';
+                    C('meter').value.value = 'list';
                 } else {
-                    uiconf.sections[2].content[0].value.value = peppy_config.current.meter;
+                    C('meter').value.value = peppy_config.current.meter;
                 }
-                uiconf.sections[2].content[0].value.label = (uiconf.sections[2].content[0].value.value).replace(upperc, c => c.toUpperCase());
+                C('meter').value.label = (C('meter').value.value).replace(upperc, c => c.toUpperCase());
 
                 // read all sections from active meters.txt and fill selection list
                 for (var section in metersconfig) {
                     availMeters += section + ', ';
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[2].content[0].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('meter'), {
                         value: section,
                         label: section.replace(upperc, c => c.toUpperCase())
                     });
@@ -964,103 +980,103 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 // list selection
                 availMeters = availMeters.substring(0, availMeters.length -2);
                 if (self.config.get('randomSelection') == '') {
-                    uiconf.sections[2].content[1].value = availMeters;
+                    C('randomSelection').value = availMeters;
                 } else {
-                    uiconf.sections[2].content[1].value = self.config.get('randomSelection');
+                    C('randomSelection').value = self.config.get('randomSelection');
                 }
-                uiconf.sections[2].content[1].doc = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.RANDOMSELECTION_DOC') + '<b>' + availMeters + '</b>';
+                C('randomSelection').doc = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.RANDOMSELECTION_DOC') + '<b>' + availMeters + '</b>';
 
                 // random mode (visible only for random and list)
-                if (uiconf.sections[2].content[0].value.value == 'random' || uiconf.sections[2].content[0].value.value == 'list') {
-                    uiconf.sections[2].content[2].hidden = false;
+                if (C('meter').value.value == 'random' || C('meter').value.value == 'list') {
+                    C('randomMode').hidden = false;
                 }
                 var random_change_title = (peppy_config.current['random.change.title']).toLowerCase() == 'true' ? true : false;
                 if (random_change_title) {
-                    uiconf.sections[2].content[2].value.value = 'titlechange';
-                    uiconf.sections[2].content[2].value.label = 'On Title Change';
+                    C('randomMode').value.value = 'titlechange';
+                    C('randomMode').value.label = 'On Title Change';
                 } else {
-                    uiconf.sections[2].content[2].value.value = 'interval';
-                    uiconf.sections[2].content[2].value.label = 'Interval';
+                    C('randomMode').value.value = 'interval';
+                    C('randomMode').value.label = 'Interval';
                 }    
                 
                 // random intervall
-                uiconf.sections[2].content[3].value = parseInt(peppy_config.current['random.meter.interval'], 10);
-                minmax[5] = [uiconf.sections[2].content[3].attributes[2].min,
-                    uiconf.sections[2].content[3].attributes[3].max,
-                    uiconf.sections[2].content[3].attributes[0].placeholder];
+                C('randomInterval').value = parseInt(peppy_config.current['random.meter.interval'], 10);
+                minmax[5] = [C('randomInterval').attributes[2].min,
+                    C('randomInterval').attributes[3].max,
+                    C('randomInterval').attributes[0].placeholder];
 
             }
             
             // section 2 - Performance settings -----------------------------
             // frame rate
             var frameRate = parseInt(peppy_config.current['frame.rate'], 10) || 30;
-            uiconf.sections[3].content[0].value = frameRate;
-            minmax[6] = [uiconf.sections[3].content[0].attributes[2].min,
-                uiconf.sections[3].content[0].attributes[3].max,
-                uiconf.sections[3].content[0].attributes[0].placeholder];
+            C('frameRate').value = frameRate;
+            minmax[6] = [C('frameRate').attributes[2].min,
+                C('frameRate').attributes[3].max,
+                C('frameRate').attributes[0].placeholder];
             
             // update interval (from peppy config.txt)
             var updateInterval = parseInt(peppy_config.current['update.interval'], 10) || 2;
-            uiconf.sections[3].content[1].value = updateInterval;
-            minmax[7] = [uiconf.sections[3].content[1].attributes[2].min,
-                uiconf.sections[3].content[1].attributes[3].max,
-                uiconf.sections[3].content[1].attributes[0].placeholder];
+            C('updateInterval').value = updateInterval;
+            minmax[7] = [C('updateInterval').attributes[2].min,
+                C('updateInterval').attributes[3].max,
+                C('updateInterval').attributes[0].placeholder];
             
             // meter delay (ms)
             var meterDelay = parseInt(peppy_config.current['meter.delay'], 10);
             if (isNaN(meterDelay)) meterDelay = 10;
-            uiconf.sections[3].content[2].value = meterDelay;
-            minmax[8] = [uiconf.sections[3].content[2].attributes[2].min,
-                uiconf.sections[3].content[2].attributes[3].max,
-                uiconf.sections[3].content[2].attributes[0].placeholder];
+            C('meterDelay').value = meterDelay;
+            minmax[8] = [C('meterDelay').attributes[2].min,
+                C('meterDelay').attributes[3].max,
+                C('meterDelay').attributes[0].placeholder];
             
             // section 4 - Scrolling settings -----------------------------
             // scrolling mode
             var scrollingMode = peppy_config.current['scrolling.mode'] || 'skin';
-            var scrollingOptions = uiconf.sections[5].content[0].options;
+            var scrollingOptions = C('scrollingMode').options;
             for (var i = 0; i < scrollingOptions.length; i++) {
                 if (scrollingOptions[i].value === scrollingMode) {
-                    uiconf.sections[5].content[0].value = scrollingOptions[i];
+                    C('scrollingMode').value = scrollingOptions[i];
                     break;
                 }
             }
             
             // scrolling speed artist
             var scrollSpeedArtist = parseInt(peppy_config.current['scrolling.speed.artist'], 10) || 40;
-            uiconf.sections[5].content[1].value = scrollSpeedArtist;
+            C('scrollingSpeedArtist').value = scrollSpeedArtist;
             
             // scrolling speed title
             var scrollSpeedTitle = parseInt(peppy_config.current['scrolling.speed.title'], 10) || 40;
-            uiconf.sections[5].content[2].value = scrollSpeedTitle;
+            C('scrollingSpeedTitle').value = scrollSpeedTitle;
             
             // scrolling speed album
             var scrollSpeedAlbum = parseInt(peppy_config.current['scrolling.speed.album'], 10) || 40;
-            uiconf.sections[5].content[3].value = scrollSpeedAlbum;
+            C('scrollingSpeedAlbum').value = scrollSpeedAlbum;
             
             // section 5 - Animation settings -----------------------------
             // transition type
             var transitionType = peppy_config.current['transition.type'] || 'fade';
-            var transitionOptions = uiconf.sections[6].content[0].options;
+            var transitionOptions = C('transitionType').options;
             for (var i = 0; i < transitionOptions.length; i++) {
                 if (transitionOptions[i].value === transitionType) {
-                    uiconf.sections[6].content[0].value = transitionOptions[i];
+                    C('transitionType').value = transitionOptions[i];
                     break;
                 }
             }
             
             // transition duration
             var transitionDuration = parseFloat(peppy_config.current['transition.duration']) || 0.5;
-            uiconf.sections[6].content[1].value = transitionDuration;
-            minmax[9] = [uiconf.sections[6].content[1].attributes[2].min,
-                uiconf.sections[6].content[1].attributes[3].max,
-                uiconf.sections[6].content[1].attributes[0].placeholder];
+            C('transitionDuration').value = transitionDuration;
+            minmax[9] = [C('transitionDuration').attributes[2].min,
+                C('transitionDuration').attributes[3].max,
+                C('transitionDuration').attributes[0].placeholder];
             
             // transition color
             var transitionColor = peppy_config.current['transition.color'] || 'black';
-            var colorOptions = uiconf.sections[6].content[2].options;
+            var colorOptions = C('transitionColor').options;
             for (var i = 0; i < colorOptions.length; i++) {
                 if (colorOptions[i].value === transitionColor) {
-                    uiconf.sections[6].content[2].value = colorOptions[i];
+                    C('transitionColor').value = colorOptions[i];
                     break;
                 }
             }
@@ -1068,60 +1084,60 @@ peppyScreensaver.prototype.getUIConfig = function() {
             // transition opacity
             var transitionOpacity = parseInt(peppy_config.current['transition.opacity'], 10);
             if (isNaN(transitionOpacity)) transitionOpacity = 100;
-            uiconf.sections[6].content[3].value = transitionOpacity;
-            minmax[10] = [uiconf.sections[6].content[3].attributes[2].min,
-                uiconf.sections[6].content[3].attributes[3].max,
-                uiconf.sections[6].content[3].attributes[0].placeholder];
+            C('transitionOpacity').value = transitionOpacity;
+            minmax[10] = [C('transitionOpacity').attributes[2].min,
+                C('transitionOpacity').attributes[3].max,
+                C('transitionOpacity').attributes[0].placeholder];
             
             // section 3 - Rotation settings -----------------------------
             // rotation quality
             var rotationQuality = peppy_config.current['rotation.quality'] || 'medium';
-            var qualityOptions = uiconf.sections[4].content[0].options;
+            var qualityOptions = C('rotationQuality').options;
             for (var i = 0; i < qualityOptions.length; i++) {
                 if (qualityOptions[i].value === rotationQuality) {
-                    uiconf.sections[4].content[0].value = qualityOptions[i];
+                    C('rotationQuality').value = qualityOptions[i];
                     break;
                 }
             }
             
             // rotation FPS (custom)
             var rotationFPS = parseInt(peppy_config.current['rotation.fps'], 10) || 8;
-            uiconf.sections[4].content[1].value = rotationFPS;
-            minmax[11] = [uiconf.sections[4].content[1].attributes[2].min,
-                uiconf.sections[4].content[1].attributes[3].max,
-                uiconf.sections[4].content[1].attributes[0].placeholder];
+            C('rotationFPS').value = rotationFPS;
+            minmax[11] = [C('rotationFPS').attributes[2].min,
+                C('rotationFPS').attributes[3].max,
+                C('rotationFPS').attributes[0].placeholder];
             
             // rotation speed (vinyl multiplier)
             var rotationSpeed = parseFloat(peppy_config.current['rotation.speed']) || 1.0;
-            uiconf.sections[4].content[2].value = rotationSpeed;
-            minmax[12] = [uiconf.sections[4].content[2].attributes[2].min,
-                uiconf.sections[4].content[2].attributes[3].max,
-                uiconf.sections[4].content[2].attributes[0].placeholder];
+            C('rotationSpeed').value = rotationSpeed;
+            minmax[12] = [C('rotationSpeed').attributes[2].min,
+                C('rotationSpeed').attributes[3].max,
+                C('rotationSpeed').attributes[0].placeholder];
             
             // spool left speed (cassette multiplier)
             var spoolLeftSpeed = parseFloat(peppy_config.current['spool.left.speed']) || 1.0;
-            uiconf.sections[4].content[3].value = spoolLeftSpeed;
-            minmax[13] = [uiconf.sections[4].content[3].attributes[2].min,
-                uiconf.sections[4].content[3].attributes[3].max,
-                uiconf.sections[4].content[3].attributes[0].placeholder];
+            C('spoolLeftSpeed').value = spoolLeftSpeed;
+            minmax[13] = [C('spoolLeftSpeed').attributes[2].min,
+                C('spoolLeftSpeed').attributes[3].max,
+                C('spoolLeftSpeed').attributes[0].placeholder];
             
             // spool right speed (cassette multiplier)
             var spoolRightSpeed = parseFloat(peppy_config.current['spool.right.speed']) || 1.0;
-            uiconf.sections[4].content[4].value = spoolRightSpeed;
-            minmax[14] = [uiconf.sections[4].content[4].attributes[2].min,
-                uiconf.sections[4].content[4].attributes[3].max,
-                uiconf.sections[4].content[4].attributes[0].placeholder];
+            C('spoolRightSpeed').value = spoolRightSpeed;
+            minmax[14] = [C('spoolRightSpeed').attributes[2].min,
+                C('spoolRightSpeed').attributes[3].max,
+                C('spoolRightSpeed').attributes[0].placeholder];
             
             // spool adaptive (dynamic speeds based on progress)
             var spoolAdaptive = peppy_config.current['spool.adaptive'] === true || peppy_config.current['spool.adaptive'] === 'true';
-            uiconf.sections[4].content[5].value = spoolAdaptive;
+            C('spoolAdaptive').value = spoolAdaptive;
             
             // reel direction
             var reelDirection = peppy_config.current['reel.direction'] || 'ccw';
-            var directionOptions = uiconf.sections[4].content[6].options;
+            var directionOptions = C('reelDirection').options;
             for (var i = 0; i < directionOptions.length; i++) {
                 if (directionOptions[i].value === reelDirection) {
-                    uiconf.sections[4].content[6].value = directionOptions[i];
+                    C('reelDirection').value = directionOptions[i];
                     break;
                 }
             }
@@ -1133,17 +1149,17 @@ peppyScreensaver.prototype.getUIConfig = function() {
             if (remoteServerEnabled === undefined) {
                 remoteServerEnabled = peppy_config && peppy_config.current ? peppy_config.current['remote.server.enabled'] === 'true' : false;
             }
-            uiconf.sections[8].content[0].value = remoteServerEnabled;
+            C('remoteServerEnabled').value = remoteServerEnabled;
             
             // server mode
             var remoteServerMode = self.config.get('remoteServerMode');
             if (remoteServerMode === undefined) {
                 remoteServerMode = peppy_config && peppy_config.current ? (peppy_config.current['remote.server.mode'] || 'server_local') : 'server_local';
             }
-            var remoteServerModeOptions = uiconf.sections[8].content[1].options;
+            var remoteServerModeOptions = C('remoteServerMode').options;
             for (var i = 0; i < remoteServerModeOptions.length; i++) {
                 if (remoteServerModeOptions[i].value === remoteServerMode) {
-                    uiconf.sections[8].content[1].value = remoteServerModeOptions[i];
+                    C('remoteServerMode').value = remoteServerModeOptions[i];
                     break;
                 }
             }
@@ -1153,28 +1169,28 @@ peppyScreensaver.prototype.getUIConfig = function() {
             if (remoteDiscoveryPort === undefined) {
                 remoteDiscoveryPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.discovery.port'], 10) || 5579) : 5579;
             }
-            uiconf.sections[8].content[2].value = remoteDiscoveryPort;
+            C('remoteDiscoveryPort').value = remoteDiscoveryPort;
             
             // meters data port
             var remoteServerPort = self.config.get('remoteServerPort');
             if (remoteServerPort === undefined) {
                 remoteServerPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.server.port'], 10) || 5580) : 5580;
             }
-            uiconf.sections[8].content[3].value = remoteServerPort;
+            C('remoteServerPort').value = remoteServerPort;
             
             // spectrum port
             var remoteSpectrumPort = self.config.get('remoteSpectrumPort');
             if (remoteSpectrumPort === undefined) {
                 remoteSpectrumPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.spectrum.port'], 10) || 5581) : 5581;
             }
-            uiconf.sections[8].content[4].value = remoteSpectrumPort;
+            C('remoteSpectrumPort').value = remoteSpectrumPort;
             
             // config sync interval
             var configSyncInterval = self.config.get('configSyncInterval');
             if (configSyncInterval === undefined) {
                 configSyncInterval = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.config.sync.interval'], 10) || 1) : 1;
             }
-            uiconf.sections[8].content[5].value = configSyncInterval;
+            C('configSyncInterval').value = configSyncInterval;
             
             // sections 9-11 - Backup and Restore (Continuity Engine) -------
             // Section 9 (Create Backup) has nothing to populate - only the
@@ -1186,33 +1202,33 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 var firstValue = { value: backupList[0].name, label: firstLabel };
                 
                 // Section 10 - Restore Backup dropdown
-                uiconf.sections[10].content[0].options = [];
+                C('selectedBackup').options = [];
                 backupList.forEach(function (b) {
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[10].content[0].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('selectedBackup'), {
                         value: b.name,
                         label: b.name + ' (' + b.createdLabel + ', v' + b.pluginVersion + ')'
                     });
                 });
-                uiconf.sections[10].content[0].value = firstValue;
+                C('selectedBackup').value = firstValue;
                 
                 // Section 11 - Delete Backup dropdown (same list)
-                uiconf.sections[11].content[0].options = [];
+                C('selectedBackupDelete').options = [];
                 backupList.forEach(function (b) {
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[11].content[0].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('selectedBackupDelete'), {
                         value: b.name,
                         label: b.name + ' (' + b.createdLabel + ', v' + b.pluginVersion + ')'
                     });
                 });
-                uiconf.sections[11].content[0].value = firstValue;
+                C('selectedBackupDelete').value = firstValue;
             }
             
             // section 12 - Debug settings -----------------------------
             // debug level
             var debugLevel = peppy_config.current['debug.level'] || 'off';
-            var debugLevelOptions = uiconf.sections[12].content[0].options;
+            var debugLevelOptions = C('debugLevel').options;
             for (var i = 0; i < debugLevelOptions.length; i++) {
                 if (debugLevelOptions[i].value === debugLevel) {
-                    uiconf.sections[12].content[0].value = debugLevelOptions[i];
+                    C('debugLevel').value = debugLevelOptions[i];
                     break;
                 }
             }
@@ -1227,27 +1243,37 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 'debug.trace.time', 'debug.trace.init', 'debug.trace.fade', 'debug.trace.frame',
                 'debug.trace.remote', 'debug.trace.remote.packets'
             ];
+            // Trace switch control ids, parallel to traceKeys above (debug.* config keys).
+            var traceIds = [
+                'traceMeters', 'traceSpectrum', 'traceVinyl', 'traceReelLeft',
+                'traceReelRight', 'traceTonearm', 'traceAlbumart',
+                'traceScrolling', 'traceVolume', 'traceMute',
+                'traceShuffle', 'traceRepeat', 'tracePlaystate',
+                'traceProgress', 'traceMetadata', 'traceSeek',
+                'traceTime', 'traceInit', 'traceFade', 'traceFrame',
+                'traceRemote', 'traceRemotePackets'
+            ];
             for (var i = 0; i < traceKeys.length; i++) {
                 var traceValue = peppy_config.current[traceKeys[i]] === 'true' || peppy_config.current[traceKeys[i]] === true;
-                uiconf.sections[12].content[i + 1].value = traceValue;
+                C(traceIds[i]).value = traceValue;
             }
             
             // section 13 - Profiling settings -----------------------------
             // per-frame timing
             var profilingTiming = peppy_config.current['profiling.timing'] === 'true' || peppy_config.current['profiling.timing'] === true;
-            uiconf.sections[13].content[0].value = profilingTiming;
+            C('profilingTiming').value = profilingTiming;
             
             // timing interval
             var profilingInterval = parseInt(peppy_config.current['profiling.interval'], 10) || 30;
-            uiconf.sections[13].content[1].value = profilingInterval;
+            C('profilingInterval').value = profilingInterval;
             
             // cProfile enabled
             var profilingCprofile = peppy_config.current['profiling.cprofile'] === 'true' || peppy_config.current['profiling.cprofile'] === true;
-            uiconf.sections[13].content[2].value = profilingCprofile;
+            C('profilingCprofile').value = profilingCprofile;
             
             // profile duration
             var profilingDuration = parseInt(peppy_config.current['profiling.duration'], 10) || 60;
-            uiconf.sections[13].content[3].value = profilingDuration;
+            C('profilingDuration').value = profilingDuration;
             
         } else {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));            
