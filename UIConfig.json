@@ -25,10 +25,8 @@
                                       "position_x",
                                       "position_y",
                                       "animation",
-                                      "smoothBuffer",
                                       "needleCache",
                                       "cachesize",
-                                      "meterGain",
                                       "mouseEnabled",
                                       "displayOutput",
                                       "doNotDeleteThemes",
@@ -180,20 +178,6 @@
                              "value": true
                             },
                             {
-                             "id": "smoothBuffer",
-                             "element": "input",
-                             "type": "number",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SMOOTH_BUFFER_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SMOOTH_BUFFER",
-                             "attributes": [
-                                             {"placeholder": 8},
-                                             {"maxlength": 2},
-                                             {"min": 2},
-                                             {"max": 15}
-                                           ],
-                             "value": 8
-                            },
-                            {
                              "id": "needleCache",
                              "element": "switch",
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.NEEDLE_CACHE_DOC",
@@ -214,20 +198,6 @@
                                              {"max": 99}
                                            ],
                              "value": 20
-                            },
-                            {
-                             "id": "meterGain",
-                             "element": "input",
-                             "type": "number",
-                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.METER_SENSITIVITY_DOC",
-                             "label": "TRANSLATE.PEPPY_SCREENSAVER.METER_SENSITIVITY",
-                             "attributes": [
-                                             {"placeholder": 0},
-                                             {"maxlength": 2},
-                                             {"min": 0},
-                                             {"max": 12}
-                                           ],
-                             "value": 0
                             },
                             {
                              "id": "mouseEnabled",
@@ -403,7 +373,9 @@
                                       "meter",
                                       "randomSelection",
                                       "randomMode",
-                                      "randomInterval"
+                                      "randomInterval",
+                                      "smoothBuffer",
+                                      "meterGain"
                                       ]
                               },
                 "content": [
@@ -465,6 +437,34 @@
                                              {"max": 1000}
                                            ],
                              "value": 120
+                            },
+                            {
+                             "id": "smoothBuffer",
+                             "element": "input",
+                             "type": "number",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.SMOOTH_BUFFER_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.SMOOTH_BUFFER",
+                             "attributes": [
+                                             {"placeholder": 8},
+                                             {"maxlength": 2},
+                                             {"min": 2},
+                                             {"max": 15}
+                                           ],
+                             "value": 8
+                            },
+                            {
+                             "id": "meterGain",
+                             "element": "input",
+                             "type": "number",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.METER_SENSITIVITY_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.METER_SENSITIVITY",
+                             "attributes": [
+                                             {"placeholder": 0},
+                                             {"maxlength": 2},
+                                             {"min": 0},
+                                             {"max": 12}
+                                           ],
+                             "value": 0
                             }
                             ]
                 },

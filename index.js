@@ -1493,33 +1493,7 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         }
     }
     
-    // smooth buffer
-    if (Number.isNaN(parseInt(confData.smoothBuffer, 10)) || !isFinite(confData.smoothBuffer)) {
-        uiNeedsUpdate = true;
-        setTimeout(function () {
-            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SMOOTH_BUFFER') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-        }, 500);
-    } else {
-        confData.smoothBuffer = self.minmax('SMOOTH_BUFFER', confData.smoothBuffer, minmax[3]);
-        if (peppy_config.data.source['smooth.buffer.size'] != confData.smoothBuffer) {
-            peppy_config.data.source['smooth.buffer.size'] = confData.smoothBuffer;
-            noChanges = false;
-        }
-    }
-
-    // write meter sensitivity (gain in dB, consumed by the data source)
-    if (Number.isNaN(parseInt(confData.meterGain, 10)) || !isFinite(confData.meterGain)) {
-        uiNeedsUpdate = true;
-        setTimeout(function () {
-            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.METER_SENSITIVITY') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-        }, 500);
-    } else {
-        confData.meterGain = self.minmax('METER_SENSITIVITY', confData.meterGain, minmax[15]);
-        if (peppy_config.data.source['volume.gain.db'] != confData.meterGain) {
-            peppy_config.data.source['volume.gain.db'] = confData.meterGain;
-            noChanges = false;
-        }
-    }
+    // (smooth buffer + meter sensitivity moved to the Meter section -> saveVUMeterConf)
 
     // write mouse support
     var mouseSupport = confData.mouseEnabled? 'True' : 'False';
@@ -1675,6 +1649,34 @@ peppyScreensaver.prototype.saveVUMeterConf = function (confData) {
         confData.randomInterval = self.minmax('RANDOMINTERVAL', confData.randomInterval, minmax[5]);
         if (peppy_config.current['random.meter.interval'] != confData.randomInterval) {
             peppy_config.current['random.meter.interval'] = confData.randomInterval;
+            noChanges = false;
+        }
+    }
+
+    // smooth buffer (moved here from the global section: meter feel)
+    if (Number.isNaN(parseInt(confData.smoothBuffer, 10)) || !isFinite(confData.smoothBuffer)) {
+        uiNeedsUpdate = true;
+        setTimeout(function () {
+            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SMOOTH_BUFFER') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+        }, 500);
+    } else {
+        confData.smoothBuffer = self.minmax('SMOOTH_BUFFER', confData.smoothBuffer, minmax[3]);
+        if (peppy_config.data.source['smooth.buffer.size'] != confData.smoothBuffer) {
+            peppy_config.data.source['smooth.buffer.size'] = confData.smoothBuffer;
+            noChanges = false;
+        }
+    }
+
+    // meter sensitivity (gain in dB, consumed by the data source)
+    if (Number.isNaN(parseInt(confData.meterGain, 10)) || !isFinite(confData.meterGain)) {
+        uiNeedsUpdate = true;
+        setTimeout(function () {
+            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.METER_SENSITIVITY') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+        }, 500);
+    } else {
+        confData.meterGain = self.minmax('METER_SENSITIVITY', confData.meterGain, minmax[15]);
+        if (peppy_config.data.source['volume.gain.db'] != confData.meterGain) {
+            peppy_config.data.source['volume.gain.db'] = confData.meterGain;
             noChanges = false;
         }
     }
