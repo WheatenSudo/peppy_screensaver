@@ -17,11 +17,50 @@ a cross-fade is a later enhancement.
 """
 
 import io
+import sys
 import json
 import urllib.request
 import urllib.parse
 
 import pygame as pg
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except Exception:
+    PIL_AVAILABLE = False
+
+
+def _decode_surface_bounded(img_bytes, box, want_alpha=False):
+    """Decode image bytes to a pygame Surface with peak memory bounded to ~box.
+
+    User-supplied fanart can be far larger than the screen. The screensaver runs
+    under a tight RLIMIT_AS, where a full-resolution decode of a high-megapixel
+    JPEG exceeds the cap and fails (previously this surfaced as the image silently
+    not displaying). PIL.Image.draft() asks libjpeg to decode JPEG at 1/2, 1/4 or
+    1/8 scale (a no-op for other formats), and thumbnail() then bounds the bitmap
+    to the display box before it ever becomes a pygame Surface, so peak memory
+    tracks the screen size rather than the source file. Falls back to pygame's own
+    loader when PIL is unavailable or errors, preserving prior behaviour.
+    """
+    if PIL_AVAILABLE and box:
+        try:
+            bw = max(1, int(box[0]))
+            bh = max(1, int(box[1]))
+            im = Image.open(io.BytesIO(img_bytes))
+            try:
+                im.draft(None, (bw, bh))  # JPEG fast-path; harmless otherwise
+            except Exception:
+                pass
+            mode = "RGBA" if want_alpha else "RGB"
+            im = im.convert(mode)
+            im.thumbnail((bw, bh))        # only shrinks; preserves aspect ratio
+            frombytes = getattr(pg.image, "frombytes", None) or pg.image.fromstring
+            return frombytes(im.tobytes(), im.size, mode)
+        except Exception as exc:
+            sys.stderr.write("[peppy] bounded image decode failed, "
+                             "falling back to pygame: %s\n" % exc)
+    return pg.image.load(io.BytesIO(img_bytes))
 
 
 class FanartSlideshowRenderer:
@@ -192,7 +231,9 @@ class FanartSlideshowRenderer:
 
     def _build_surface(self, img_bytes, ref):
         try:
-            surf = pg.image.load(io.BytesIO(img_bytes))
+            # Memory-bounded decode: large fanart would otherwise exceed the
+            # screensaver's RLIMIT_AS during full decode and silently fail to show.
+            surf = _decode_surface_bounded(img_bytes, self.dim, want_alpha=False)
             # Use convert() (opaque) rather than convert_alpha(): fanart photos have no
             # transparency, and a non per-pixel-alpha surface lets set_alpha() drive the
             # fade/crossfade transitions correctly.
@@ -217,7 +258,8 @@ class FanartSlideshowRenderer:
             self._cache[ref] = (scaled, blit_pos)
             self._need_first_blit = True
             self._needs_redraw = True
-        except Exception:
+        except Exception as exc:
+            sys.stderr.write("[peppy] fanart _build_surface failed: %s\n" % exc)
             self._scaled = None
 
     @staticmethod

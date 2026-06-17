@@ -16,15 +16,52 @@ change (never per frame) and exposes a backing rect for the handlers' anti-colli
 """
 
 import io
+import sys
 import json
 import base64
 import urllib.request
 
 import pygame as pg
 
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except Exception:
+    PIL_AVAILABLE = False
+
 DEFAULT_FOLDER_FILES = [
     "back.png", "Back.png", "back.jpg", "Back.jpg", "logo.png", "Logo.png",
 ]
+
+
+def _decode_surface_bounded(img_bytes, box, want_alpha=True):
+    """Decode image bytes to a pygame Surface with peak memory bounded to ~box.
+
+    Folder images (back cover, logo) are user-supplied at arbitrary resolution.
+    The screensaver runs under a tight RLIMIT_AS, where a full-resolution decode
+    of a large source can exceed the cap and fail (silently). PIL.Image.draft()
+    decodes JPEG at 1/2, 1/4 or 1/8 scale (no-op for PNG/others), and thumbnail()
+    bounds the bitmap to the display box before it becomes a pygame Surface. Falls
+    back to pygame's own loader when PIL is unavailable or errors.
+    """
+    if PIL_AVAILABLE and box:
+        try:
+            bw = max(1, int(box[0]))
+            bh = max(1, int(box[1]))
+            im = Image.open(io.BytesIO(img_bytes))
+            try:
+                im.draft(None, (bw, bh))  # JPEG fast-path; harmless otherwise
+            except Exception:
+                pass
+            mode = "RGBA" if want_alpha else "RGB"
+            im = im.convert(mode)
+            im.thumbnail((bw, bh))        # only shrinks; preserves aspect ratio
+            frombytes = getattr(pg.image, "frombytes", None) or pg.image.fromstring
+            return frombytes(im.tobytes(), im.size, mode)
+        except Exception as exc:
+            sys.stderr.write("[peppy] bounded image decode failed, "
+                             "falling back to pygame: %s\n" % exc)
+    return pg.image.load(io.BytesIO(img_bytes))
 
 
 class FolderImageRenderer:
@@ -99,7 +136,9 @@ class FolderImageRenderer:
 
     def _build_surface(self, img_bytes):
         try:
-            surf = pg.image.load(io.BytesIO(img_bytes))
+            # Memory-bounded decode: large folder images would otherwise exceed the
+            # screensaver's RLIMIT_AS during full decode and silently fail to show.
+            surf = _decode_surface_bounded(img_bytes, self.dim, want_alpha=True)
             try:
                 surf = surf.convert_alpha()
             except Exception:
@@ -118,7 +157,8 @@ class FolderImageRenderer:
                 self._blit_pos = (self.pos[0] + (tw - nw) // 2,
                                   self.pos[1] + (th - nh) // 2)
             self._need_first_blit = True
-        except Exception:
+        except Exception as exc:
+            sys.stderr.write("[peppy] folderimage _build_surface failed: %s\n" % exc)
             self._scaled_surf = None
 
     @staticmethod
