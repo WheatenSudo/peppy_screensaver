@@ -1354,8 +1354,13 @@ class CassetteHandler:
         rot_quality = self.meter_config_volumio.get(ROTATION_QUALITY, "medium")
         rot_custom_fps = self.meter_config_volumio.get(ROTATION_FPS, 8)
         rot_fps, rot_step = get_rotation_params(rot_quality, rot_custom_fps)
-        spool_left_mult = self.meter_config_volumio.get(SPOOL_LEFT_SPEED, 1.0)
-        spool_right_mult = self.meter_config_volumio.get(SPOOL_RIGHT_SPEED, 1.0)
+        # Spool speed multipliers are a custom-quality-only tuning; presets use 1.0.
+        if rot_quality == "custom":
+            spool_left_mult = self.meter_config_volumio.get(SPOOL_LEFT_SPEED, 1.0)
+            spool_right_mult = self.meter_config_volumio.get(SPOOL_RIGHT_SPEED, 1.0)
+        else:
+            spool_left_mult = 1.0
+            spool_right_mult = 1.0
         reel_direction = mc_vol.get(REEL_DIRECTION) or self.meter_config_volumio.get(REEL_DIRECTION, "ccw")
         # SMOOTH_ROTATION: rollback remove next 2 lines
         smooth_rot_raw = self.meter_config_volumio.get(SMOOTH_ROTATION, False)
@@ -1846,8 +1851,14 @@ class CassetteHandler:
         
         if spool_adaptive and effective_progress_pct is not None and self.reel_left and self.reel_right:
             progress_factor = effective_progress_pct / 100.0  # 0.0 to 1.0
-            base_left = self.meter_config_volumio.get(SPOOL_LEFT_SPEED, 1.0)
-            base_right = self.meter_config_volumio.get(SPOOL_RIGHT_SPEED, 1.0)
+            # Spool speed multipliers are custom-quality-only; presets use 1.0 as the
+            # adaptive base (adaptive scaling itself still applies on any quality).
+            if self.meter_config_volumio.get(ROTATION_QUALITY, "medium") == "custom":
+                base_left = self.meter_config_volumio.get(SPOOL_LEFT_SPEED, 1.0)
+                base_right = self.meter_config_volumio.get(SPOOL_RIGHT_SPEED, 1.0)
+            else:
+                base_left = 1.0
+                base_right = 1.0
             
             # Get reel direction (per-meter or global)
             reel_direction = self.mc_vol.get(REEL_DIRECTION)

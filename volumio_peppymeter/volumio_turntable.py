@@ -2140,7 +2140,11 @@ class TurntableHandler:
         rot_quality = self.global_config.get(ROTATION_QUALITY, "medium")
         rot_custom_fps = self.global_config.get(ROTATION_FPS, 8)
         rot_fps, rot_step = get_rotation_params(rot_quality, rot_custom_fps)
-        rot_speed_mult = self.global_config.get(ROTATION_SPEED, 1.0)
+        # Vinyl speed multiplier is a custom-quality-only tuning; presets use 1.0.
+        if rot_quality == "custom":
+            rot_speed_mult = self.global_config.get(ROTATION_SPEED, 1.0)
+        else:
+            rot_speed_mult = 1.0
         # SMOOTH_ROTATION: rollback remove next 2 lines
         smooth_rot_raw = self.global_config.get(SMOOTH_ROTATION, False)
         smooth_rot = str(smooth_rot_raw).strip().lower() in ('1', 'true', 'yes') if smooth_rot_raw is not None else False

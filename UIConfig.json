@@ -582,6 +582,7 @@
                              "id": "rotationSpeed",
                              "element": "input",
                              "type": "number",
+                             "visibleIf": {"field": "rotationQuality", "value": "custom"},
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.ROTATION_SPEED_DOC",
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.ROTATION_SPEED",
                              "attributes": [
@@ -597,6 +598,7 @@
                              "id": "spoolLeftSpeed",
                              "element": "input",
                              "type": "number",
+                             "visibleIf": {"field": "rotationQuality", "value": "custom"},
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.SPOOL_LEFT_SPEED_DOC",
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.SPOOL_LEFT_SPEED",
                              "attributes": [
@@ -612,6 +614,7 @@
                              "id": "spoolRightSpeed",
                              "element": "input",
                              "type": "number",
+                             "visibleIf": {"field": "rotationQuality", "value": "custom"},
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.SPOOL_RIGHT_SPEED_DOC",
                              "label": "TRANSLATE.PEPPY_SCREENSAVER.SPOOL_RIGHT_SPEED",
                              "attributes": [
