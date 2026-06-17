@@ -50,7 +50,7 @@ from volumio_configfileparser import (
     EXTENDED_CONF,
     ROTATION_QUALITY, ROTATION_FPS, ROTATION_SPEED, SMOOTH_ROTATION,  # SMOOTH_ROTATION: rollback remove from import
     REEL_DIRECTION, QUEUE_MODE,
-    FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD,
+    FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD, FONT_ITALIC,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
     PLAY_TXT_CENTER, PLAY_CENTER, PLAY_MAX,
@@ -65,15 +65,27 @@ from volumio_configfileparser import (
     PLAY_TICKER_POS, PLAY_TICKER_COLOR, PLAY_TICKER_MAX, PLAY_TICKER_STYLE, PLAY_TICKER_SPEED,
     PLAY_TICKER_SEPARATOR, PLAY_TICKER_SPACE_BETWEEN, PLAY_TICKER_END_SPACES,
     PLAY_TYPE_POS, PLAY_TYPE_COLOR, PLAY_TYPE_DIM,
-    PLAY_SAMPLE_POS, PLAY_SAMPLE_STYLE, PLAY_SAMPLE_MAX,
+    PLAY_SAMPLE_POS, PLAY_SAMPLE_STYLE, PLAY_SAMPLE_MAX, PLAY_SAMPLE_COLOR,
     TIME_REMAINING_POS, TIMECOLOR,
     TIME_REMAINING_STYLE, TIME_REMAINING_FONT, TIME_REMAINING_FONTSIZE,
     TIME_ELAPSED_POS, TIME_ELAPSED_COLOR, TIME_ELAPSED_STYLE, TIME_ELAPSED_FONT, TIME_ELAPSED_FONTSIZE,
     TIME_TOTAL_POS, TIME_TOTAL_COLOR, TIME_TOTAL_STYLE, TIME_TOTAL_FONT, TIME_TOTAL_FONTSIZE,
-    FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTCOLOR,
-    FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L,
-    METER_DELAY
+    FONTSIZE_LIGHT, FONTSIZE_REGULAR, FONTSIZE_BOLD, FONTSIZE_DIGI, FONTSIZE_ITALIC, FONTCOLOR,
+    FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L, FONT_STYLE_I,
+    METER_DELAY,
+    FOLDERLAYERS,
+    FANART_POS, FANART_DIM, FANART_SCALE, FANART_ZORDER
 )
+
+try:
+    from volumio_folderimage import FolderImageRenderer
+except ImportError:
+    FolderImageRenderer = None
+
+try:
+    from volumio_artistfanart import FanartSlideshowRenderer
+except ImportError:
+    FanartSlideshowRenderer = None
 
 # Vinyl configuration constants
 try:
@@ -1893,6 +1905,12 @@ class TurntableHandler:
         
         # Background surface for layer composition
         self.bgr_surface = None
+        # Folder-image layers (Item 5): list of {r, rect, zorder, changed}
+        self.folder_layers = []
+        # Artist fanart slideshow (Item 6)
+        self.fanart_renderer = None
+        self.fanart_rect = None
+        self.fanart_zorder = "background"
         
         # Deceleration/spindown state - vinyl slows down during tonearm lift
         self._decel_start = None  # Timestamp when deceleration started (tonearm lift began)
@@ -1929,6 +1947,7 @@ class TurntableHandler:
         self.fontL = None
         self.fontR = None
         self.fontB = None
+        self.fontI = None
         self.fontDigi = None
         self.sample_font = None
         
@@ -2064,6 +2083,8 @@ class TurntableHandler:
         self.time_elapsed_color = sanitize_color(mc_vol.get(TIME_ELAPSED_COLOR), self.time_color)
         self.time_total_color = sanitize_color(mc_vol.get(TIME_TOTAL_COLOR), self.time_color)
         self.type_color = sanitize_color(mc_vol.get(PLAY_TYPE_COLOR), self.font_color)
+        # Samplerate colour: separate from type colour; defaults to type_color for back-compat
+        self.sample_color = sanitize_color(mc_vol.get(PLAY_SAMPLE_COLOR), self.type_color)
         
         # Max widths
         artist_max = as_int(mc_vol.get(PLAY_ARTIST_MAX), 0)
@@ -2119,7 +2140,11 @@ class TurntableHandler:
         rot_quality = self.global_config.get(ROTATION_QUALITY, "medium")
         rot_custom_fps = self.global_config.get(ROTATION_FPS, 8)
         rot_fps, rot_step = get_rotation_params(rot_quality, rot_custom_fps)
-        rot_speed_mult = self.global_config.get(ROTATION_SPEED, 1.0)
+        # Vinyl speed multiplier is a custom-quality-only tuning; presets use 1.0.
+        if rot_quality == "custom":
+            rot_speed_mult = self.global_config.get(ROTATION_SPEED, 1.0)
+        else:
+            rot_speed_mult = 1.0
         # SMOOTH_ROTATION: rollback remove next 2 lines
         smooth_rot_raw = self.global_config.get(SMOOTH_ROTATION, False)
         smooth_rot = str(smooth_rot_raw).strip().lower() in ('1', 'true', 'yes') if smooth_rot_raw is not None else False
@@ -2236,6 +2261,48 @@ class TurntableHandler:
                 log_debug("  Album art coupled to vinyl rotation", "verbose")
             
             log_debug(f"  AlbumArtRenderer created (rotate={rotate_enabled})", "verbose")
+
+        # Create folder-image renderer (Item 5): decorative image from the track's folder
+        # Create folder-image layers (Item 5): one renderer per configured layer
+        # (legacy folderlayer.* and/or indexed folderlayer.N.*).
+        self.folder_layers = []
+        if FolderImageRenderer is not None:
+            for fl_cfg in (mc_vol.get(FOLDERLAYERS) or []):
+                fl_pos = fl_cfg.get("pos")
+                fl_dim = fl_cfg.get("dim")
+                if not fl_pos or not fl_dim:
+                    continue
+                self.folder_layers.append({
+                    "r": FolderImageRenderer(
+                        pos=fl_pos,
+                        dim=fl_dim,
+                        scale_mode=fl_cfg.get("scale") or "fit",
+                        filenames=fl_cfg.get("files"),
+                    ),
+                    "rect": pg.Rect(fl_pos[0], fl_pos[1], fl_dim[0], fl_dim[1]),
+                    "zorder": (fl_cfg.get("zorder") or "overlay"),
+                    "changed": False,
+                })
+            if self.folder_layers:
+                log_debug("  FolderImageRenderer x" + str(len(self.folder_layers)) + " created", "verbose")
+
+        # Create artist fanart slideshow renderer (Item 6): slot presence enables it
+        self.fanart_renderer = None
+        self.fanart_rect = None
+        self.fanart_zorder = "background"
+        if FanartSlideshowRenderer is not None:
+            fa_pos = mc_vol.get(FANART_POS)
+            fa_dim = mc_vol.get(FANART_DIM)
+            if fa_pos and fa_dim:
+                self.fanart_zorder = (mc_vol.get(FANART_ZORDER) or "background")
+                self.fanart_rect = pg.Rect(fa_pos[0], fa_pos[1], fa_dim[0], fa_dim[1])
+                self.fanart_renderer = FanartSlideshowRenderer(
+                    pos=fa_pos,
+                    dim=fa_dim,
+                    scale_mode=mc_vol.get(FANART_SCALE) or "fit",
+                    cadence="track",
+                )
+                log_debug("  FanartSlideshowRenderer created (zorder=" + self.fanart_zorder + ")", "verbose")
         
         # Create tonearm renderer
         self.tonearm_renderer = None
@@ -2460,6 +2527,17 @@ class TurntableHandler:
         else:
             self.fontB = pg.font.SysFont("DejaVuSans", size_bold, bold=True)
             log_debug(f"  Font bold: SysFont DejaVuSans (fallback, file={bold_file})", "basic")
+
+        # Italic font (regular-weight slant); own size bucket (font.size.italic,
+        # defaults to regular). Falls back to regular face when unavailable.
+        size_italic = as_int(mc_vol.get(FONTSIZE_ITALIC), size_regular)
+        italic_file = self.global_config.get(FONT_ITALIC)
+        if italic_file and os.path.exists(font_path + italic_file):
+            self.fontI = pg.font.Font(font_path + italic_file, size_italic)
+            log_debug(f"  Font italic: {font_path + italic_file} (size={size_italic})", "basic")
+        else:
+            self.fontI = self.fontR
+            log_debug(f"  Font italic: fallback to regular (file={italic_file})", "basic")
         
         # Digital font for time (default; used when per-field font/size not set)
         default_digi_path = os.path.join(os.path.dirname(__file__), 'fonts', 'DSEG7Classic-Italic.ttf')
@@ -2532,6 +2610,8 @@ class TurntableHandler:
             return self.fontB
         elif style == FONT_STYLE_R:
             return self.fontR
+        elif style == FONT_STYLE_I:
+            return self.fontI
         else:
             return self.fontL
     
@@ -2757,6 +2837,20 @@ class TurntableHandler:
         vinyl_should_spin = is_playing or volatile or in_deceleration or tonearm_is_animating
         vinyl_will_blit = self.vinyl_renderer and vinyl_should_spin and self.vinyl_renderer.will_blit(now_ticks)
         
+        # Pre-calculate folder-image state (Item 5): refresh on track-folder change
+        if self.folder_layers:
+            _fl_url = meta.get("_volumio_url") or "http://localhost:3000"
+            _fl_uri = meta.get("uri", "") or ""
+            for _fl in self.folder_layers:
+                _fl["r"].set_volumio_url(_fl_url)
+                _fl["changed"] = _fl["r"].update_for_track(_fl_uri)
+
+        # Pre-calculate artist fanart state (Item 6): refresh on artist change, advance per track
+        fanart_changed = False
+        if self.fanart_renderer:
+            self.fanart_renderer.set_volumio_url(meta.get("_volumio_url") or "http://localhost:3000")
+            fanart_changed = self.fanart_renderer.update_for_track(meta.get("artist", "") or "", meta.get("uri", "") or "")
+
         # Pre-calculate album art state
         album_will_render = False
         album_url_changed = False
@@ -2799,6 +2893,17 @@ class TurntableHandler:
             rect = self.album_renderer.get_visual_rect()
             if rect:
                 clear_regions.append(rect.inflate(8, 8))
+
+        # Folder image (background z-order) - clear when the track folder changed
+        for _fl in self.folder_layers:
+            if _fl["zorder"] == "background" and _fl["changed"] and _fl["rect"]:
+                clear_regions.append(_fl["rect"])
+
+        # Artist fanart (background z-order) - clear when the displayed image changed
+        # or while a transition is animating (redraw every frame)
+        if self.fanart_renderer and self.fanart_zorder == "background" and self.fanart_rect and \
+                (fanart_changed or self.fanart_renderer.is_transitioning()):
+            clear_regions.append(self.fanart_rect)
         
         # Tonearm region - clear LAST position from bgr_surface (not restore_backing)
         # This clears to pure static background, then overlapping components redraw
@@ -2838,6 +2943,37 @@ class TurntableHandler:
             if album_url_changed or album_will_render or (force_flag and self.album_renderer._scaled_surf):
                 advance = album_will_render
                 rect = self.album_renderer.render(self.screen, status, now_ticks, advance_angle=advance, volatile=volatile)
+                if rect:
+                    dirty_rects.append(rect)
+
+        # Z2b: Folder images (background z-order) - BEFORE meters, like album art.
+        # overlaps_cleared() isn't defined yet here, so test clear_regions inline.
+        for _fl in self.folder_layers:
+            if _fl["zorder"] != "background" or not _fl["r"].has_image():
+                continue
+            fl_overlaps_cleared = False
+            if _fl["rect"]:
+                for _region in clear_regions:
+                    if _region and _fl["rect"].colliderect(_region):
+                        fl_overlaps_cleared = True
+                        break
+            if _fl["changed"] or fl_overlaps_cleared:
+                _fl["r"].force_redraw()
+                rect = _fl["r"].render(self.screen)
+                if rect:
+                    dirty_rects.append(rect)
+
+        # Z2c: Artist fanart (background z-order) - BEFORE meters, like album art
+        if self.fanart_renderer and self.fanart_zorder == "background" and self.fanart_renderer.has_image():
+            fa_overlaps_cleared = False
+            if self.fanart_rect:
+                for _region in clear_regions:
+                    if _region and self.fanart_rect.colliderect(_region):
+                        fa_overlaps_cleared = True
+                        break
+            if fanart_changed or self.fanart_renderer.is_transitioning() or fa_overlaps_cleared:
+                self.fanart_renderer.force_redraw()
+                rect = self.fanart_renderer.render(self.screen)
                 if rect:
                     dirty_rects.append(rect)
         
@@ -3234,7 +3370,7 @@ class TurntableHandler:
                     self.screen.blit(self.bgr_surface, self.sample_rect.topleft, self.sample_rect)
                     dirty_rects.append(self.sample_rect.copy())
                 
-                self.last_sample_surf = self.sample_font.render(sample_text, True, self.type_color)
+                self.last_sample_surf = self.sample_font.render(sample_text, True, self.sample_color)
                 
                 if self.center_flag and self.sample_box:
                     sx = self.sample_pos[0] + (self.sample_box - self.last_sample_surf.get_width()) // 2
@@ -3242,6 +3378,38 @@ class TurntableHandler:
                     sx = self.sample_pos[0]
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
         
+        # LAYER: Folder images (overlay z-order) - above dynamic content, below foreground
+        for _fl in self.folder_layers:
+            if _fl["zorder"] != "overlay" or not _fl["r"].has_image():
+                continue
+            fl_rect = _fl["r"].get_backing_rect()
+            need_overlay = _fl["r"]._need_first_blit
+            if not need_overlay and fl_rect:
+                for d in dirty_rects:
+                    if d and fl_rect.colliderect(d):
+                        need_overlay = True
+                        break
+            if need_overlay:
+                _fl["r"].force_redraw()
+                rect = _fl["r"].render(self.screen)
+                if rect:
+                    dirty_rects.append(rect)
+
+        # LAYER: Artist fanart (overlay z-order) - above dynamic content, below foreground
+        if self.fanart_renderer and self.fanart_zorder == "overlay" and self.fanart_renderer.has_image():
+            fa_rect = self.fanart_renderer.get_backing_rect()
+            need_fa = self.fanart_renderer._need_first_blit
+            if not need_fa and fa_rect:
+                for d in dirty_rects:
+                    if d and fa_rect.colliderect(d):
+                        need_fa = True
+                        break
+            if need_fa:
+                self.fanart_renderer.force_redraw()
+                rect = self.fanart_renderer.render(self.screen)
+                if rect:
+                    dirty_rects.append(rect)
+
         # LAYER: Foreground mask (always last)
         if self.fgr_surf and dirty_rects:
             fgr_x, fgr_y = self.fgr_pos
@@ -3263,6 +3431,8 @@ class TurntableHandler:
         self.vinyl_renderer = None
         self.tonearm_renderer = None
         self.album_renderer = None
+        self.folder_layers = []
+        self.fanart_renderer = None
         self.indicator_renderer = None
         self.artist_scroller = None
         self.title_scroller = None

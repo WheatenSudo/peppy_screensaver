@@ -19,6 +19,7 @@ FONT_PATH = "font.path"
 FONT_LIGHT = "font.light"
 FONT_REGULAR = "font.regular"
 FONT_BOLD = "font.bold"
+FONT_ITALIC = "font.italic"
 USE_SYSTEM_FONTS = "use.system.fonts"
 
 POSITION_TYPE = "position.type"
@@ -92,12 +93,28 @@ QUEUE_MODE = "queue.mode"
 
 EXTENDED_CONF = "config.extend"
 METER_VISIBLE = "meter.visible"
+METER_PREVIEW = "meter.preview"
 ALBUMART_POS = "albumart.pos"
 ALBUMART_DIM = "albumart.dimension"
 ALBUMART_MSK = "albumart.mask"
 ALBUMBORDER = "albumart.border"
 ALBUMART_ROT = "albumart.rotation"
 ALBUMART_ROT_SPEED = "albumart.rotation.speed"
+# Extra decorative layer sourced from the playing track's folder (Item 5)
+FOLDERLAYER_ENABLED = "folderlayer.enabled"
+FOLDERLAYER_FILES = "folderlayer.files"
+FOLDERLAYER_POS = "folderlayer.pos"
+FOLDERLAYER_DIM = "folderlayer.dimension"
+FOLDERLAYER_SCALE = "folderlayer.scale"
+FOLDERLAYER_ZORDER = "folderlayer.zorder"
+FOLDERLAYERS = "folderlayers"   # parsed list of folder-image layer dicts (multi-layer)
+FOLDERLAYER_MAX = 5             # max indexed folderlayer.N.* layers (plus the legacy one)
+FOLDERLAYER_DEFAULT_FILES = ["back.png", "Back.png", "back.jpg", "Back.jpg", "logo.png", "Logo.png"]
+# Artist fanart slideshow slot (Item 6) - geometry only; cadence/key live in plugin UI
+FANART_POS = "fanart.pos"
+FANART_DIM = "fanart.dimension"
+FANART_SCALE = "fanart.scale"
+FANART_ZORDER = "fanart.zorder"
 
 # Reel configuration constants (for cassette skins)
 REEL_LEFT_FILE = "reel.left.filename"
@@ -154,6 +171,10 @@ VOLUME_SLIDER_TIP = "volume.slider.tip"
 VOLUME_SLIDER_ORIENTATION = "volume.slider.orientation"
 VOLUME_SLIDER_TRAVEL = "volume.slider.travel"
 VOLUME_SLIDER_TIP_OFFSET = "volume.slider.tip.offset"
+VOLUME_FILL_COLOR = "volume.fill.color"   # optional fill/tail behind the image slider knob
+VOLUME_FILL_WIDTH = "volume.fill.width"   # fill thickness (cross-axis); defaults to the knob size
+VOLUME_FILL_OFFSET = "volume.fill.offset" # nudge the fill from the knob-centred position (dx,dy)
+VOLUME_FILL_RADIUS = "volume.fill.radius" # rounded fill ends (border radius px); 0 = square
 
 # Mute indicator
 MUTE_POS = "mute.pos"
@@ -227,7 +248,7 @@ PROGRESS_ARC_WIDTH = "progress.arc.width"
 PROGRESS_ARC_ANGLE_START = "progress.arc.angle.start"
 PROGRESS_ARC_ANGLE_END = "progress.arc.angle.end"
 PROGRESS_FONT_SIZE = "progress.font.size"
-# Progress bar markers (optional): progress.marker.N.pos (0-100), .image (filename), .label (text)
+# Progress bar markers (optional): progress.marker.N.pos (0-100), .image (filename), .label (text). N = 1..10
 PROGRESS_MARKER_POS = "progress.marker.%s.pos"
 PROGRESS_MARKER_IMAGE = "progress.marker.%s.image"
 PROGRESS_MARKER_LABEL = "progress.marker.%s.label"
@@ -286,6 +307,7 @@ PLAY_TYPE_DIM = "playinfo.type.dimension"
 PLAY_SAMPLE_POS = "playinfo.samplerate.pos"
 PLAY_SAMPLE_STYLE = "PLAY_SAMPLE_STYLE"
 PLAY_SAMPLE_MAX = "playinfo.samplerate.maxwidth"
+PLAY_SAMPLE_COLOR = "playinfo.samplerate.color"
 TIME_REMAINING_POS = "time.remaining.pos"
 TIMECOLOR = "time.remaining.color"
 TIME_REMAINING_STYLE = "time.remaining.style"
@@ -304,10 +326,12 @@ TIME_TOTAL_FONTSIZE = "time.total.fontsize"
 FONT_STYLE_B = "bold"
 FONT_STYLE_R = "regular"
 FONT_STYLE_L = "light"
+FONT_STYLE_I = "italic"
 FONTSIZE_LIGHT = "font.size.light"
 FONTSIZE_REGULAR = "font.size.regular"
 FONTSIZE_BOLD = "font.size.bold"
 FONTSIZE_DIGI = "font.size.digi"
+FONTSIZE_ITALIC = "font.size.italic"  # optional; defaults to font.size.regular
 FONTCOLOR = "font.color"
 
 SPECTRUM_VISIBLE = "spectrum.visible"
@@ -525,6 +549,10 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio[FONT_BOLD] = c.get(CURRENT, FONT_BOLD)
         except:
             self.meter_config_volumio[FONT_BOLD] = None
+        try:
+            self.meter_config_volumio[FONT_ITALIC] = c.get(CURRENT, FONT_ITALIC)
+        except:
+            self.meter_config_volumio[FONT_ITALIC] = None
 
         # PeppyFont override: when use.system.fonts is False (default), replace
         # font paths with built-in PeppyFont files for universal language coverage
@@ -544,6 +572,9 @@ class Volumio_ConfigFileParser(object):
                 self.meter_config_volumio[FONT_LIGHT] = os.path.join(_fonts_dir, 'PeppyFont-Light.ttf')
                 self.meter_config_volumio[FONT_REGULAR] = _peppy_regular
                 self.meter_config_volumio[FONT_BOLD] = os.path.join(_fonts_dir, 'PeppyFont-Bold.ttf')
+                _peppy_italic = os.path.join(_fonts_dir, 'PeppyFont-Italic.ttf')
+                if os.path.exists(_peppy_italic):
+                    self.meter_config_volumio[FONT_ITALIC] = _peppy_italic
 
         try:
             self.meter_config_volumio[METER_BKP] = self.meter_config[METER]
@@ -574,6 +605,10 @@ class Volumio_ConfigFileParser(object):
         except:
             d[METER_VISIBLE] = True
         try:
+            d[METER_PREVIEW] = config_file.get(section, METER_PREVIEW)
+        except:
+            d[METER_PREVIEW] = None
+        try:
             spl = config_file.get(section, ALBUMART_POS).split(',')
             d[ALBUMART_POS] =  (int(spl[0]), int(spl[1]))
         except:
@@ -601,6 +636,74 @@ class Volumio_ConfigFileParser(object):
             d[ALBUMART_ROT_SPEED] = config_file.getfloat(section, ALBUMART_ROT_SPEED)
         except:
             d[ALBUMART_ROT_SPEED] = 0.0  # default: no rotation
+
+        # --- Folder-image layers (Item 5): decorative images from the playing track's
+        # folder (e.g. back cover + band logo). Supports the legacy single 'folderlayer.*'
+        # (kept for backward compatibility, requires folderlayer.enabled = True) plus
+        # indexed 'folderlayer.N.*' (N = 1..FOLDERLAYER_MAX), each with its own files/
+        # position/size/scale/z-order. An indexed layer is enabled simply by declaring its
+        # .pos and .dimension (same slot-presence model as the fanart layer). ---
+        _fl_prefixes = []
+        try:
+            if config_file.getboolean(section, FOLDERLAYER_ENABLED):
+                _fl_prefixes.append("folderlayer")
+        except:
+            pass
+        for _i in range(1, FOLDERLAYER_MAX + 1):
+            _fl_prefixes.append("folderlayer." + str(_i))
+        _folderlayers = []
+        for _pfx in _fl_prefixes:
+            try:
+                spl = config_file.get(section, _pfx + ".pos").split(',')
+                _fl_pos = (int(spl[0]), int(spl[1]))
+            except:
+                _fl_pos = None
+            try:
+                spl = config_file.get(section, _pfx + ".dimension").split(',')
+                _fl_dim = (int(spl[0]), int(spl[1]))
+            except:
+                _fl_dim = None
+            if not _fl_pos or not _fl_dim:
+                continue  # a layer needs both pos and dimension to exist
+            try:
+                _fl_raw = config_file.get(section, _pfx + ".files")
+                _fl_files = [f.strip() for f in _fl_raw.split(',') if f.strip()]
+            except:
+                _fl_files = list(FOLDERLAYER_DEFAULT_FILES)
+            try:
+                _fl_scale = config_file.get(section, _pfx + ".scale").strip().lower()
+            except:
+                _fl_scale = "fit"  # 'fit' (best-fit, keep aspect) or 'stretch'
+            try:
+                _fl_zorder = config_file.get(section, _pfx + ".zorder").strip().lower()
+            except:
+                _fl_zorder = "overlay"  # 'overlay' (above meters) or 'background' (behind meters)
+            _folderlayers.append({
+                "files": _fl_files, "pos": _fl_pos, "dim": _fl_dim,
+                "scale": _fl_scale, "zorder": _fl_zorder,
+            })
+        d[FOLDERLAYERS] = _folderlayers
+
+        # --- Artist fanart slideshow slot (Item 6): geometry in meters.txt; the slot's
+        # presence here enables it (cadence/personal key come from plugin settings) ---
+        try:
+            spl = config_file.get(section, FANART_POS).split(',')
+            d[FANART_POS] = (int(spl[0]), int(spl[1]))
+        except:
+            d[FANART_POS] = None
+        try:
+            spl = config_file.get(section, FANART_DIM).split(',')
+            d[FANART_DIM] = (int(spl[0]), int(spl[1]))
+        except:
+            d[FANART_DIM] = None
+        try:
+            d[FANART_SCALE] = config_file.get(section, FANART_SCALE).strip().lower()
+        except:
+            d[FANART_SCALE] = "fit"  # 'fit' (preserve aspect) or 'stretch'
+        try:
+            d[FANART_ZORDER] = config_file.get(section, FANART_ZORDER).strip().lower()
+        except:
+            d[FANART_ZORDER] = "background"  # 'background' (behind meters) or 'overlay'
 
         # --- Reel configuration (for cassette skins) ---
         try:
@@ -784,6 +887,24 @@ class Volumio_ConfigFileParser(object):
             d[VOLUME_SLIDER_TIP_OFFSET] = (int(spl[0]), int(spl[1]))
         except:
             d[VOLUME_SLIDER_TIP_OFFSET] = (0, 0)
+        try:
+            spl = config_file.get(section, VOLUME_FILL_COLOR).split(',')
+            d[VOLUME_FILL_COLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))
+        except:
+            d[VOLUME_FILL_COLOR] = None  # off by default (existing skins unchanged)
+        try:
+            d[VOLUME_FILL_WIDTH] = config_file.getint(section, VOLUME_FILL_WIDTH)
+        except:
+            d[VOLUME_FILL_WIDTH] = None  # default: knob cross-axis size
+        try:
+            spl = config_file.get(section, VOLUME_FILL_OFFSET).split(',')
+            d[VOLUME_FILL_OFFSET] = (int(spl[0]), int(spl[1]))
+        except:
+            d[VOLUME_FILL_OFFSET] = (0, 0)  # centred on the knob by default
+        try:
+            d[VOLUME_FILL_RADIUS] = max(0, config_file.getint(section, VOLUME_FILL_RADIUS))
+        except:
+            d[VOLUME_FILL_RADIUS] = 0  # square ends by default
 
         # Mute indicator
         try:
@@ -1121,9 +1242,10 @@ class Volumio_ConfigFileParser(object):
         except:
             d[PROGRESS_FONT_SIZE] = 24
 
-        # Optional progress bar markers (1..5): position 0-100, optional image filename, optional label
+        # Optional progress bar markers (1..10): position 0-100, optional image filename, optional label
+        # Markers must be contiguous from 1; the first missing .pos stops parsing.
         d["progress.markers"] = []
-        for n in range(1, 6):
+        for n in range(1, 11):
             try:
                 pos_key = PROGRESS_MARKER_POS % n
                 pos_val = config_file.getfloat(section, pos_key)
@@ -1369,6 +1491,12 @@ class Volumio_ConfigFileParser(object):
             d[PLAY_SAMPLE_MAX] = config_file.getint(section, PLAY_SAMPLE_MAX)
         except:
             d[PLAY_SAMPLE_MAX] = None
+        # Optional separate samplerate colour; None falls back to playinfo.type.color in the handler
+        try:
+            spl = config_file.get(section, PLAY_SAMPLE_COLOR).split(',')
+            d[PLAY_SAMPLE_COLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))
+        except:
+            d[PLAY_SAMPLE_COLOR] = None
 
         try:
             spl = config_file.get(section, TIME_REMAINING_POS).split(',')
@@ -1393,6 +1521,12 @@ class Volumio_ConfigFileParser(object):
             d[FONTSIZE_DIGI] = config_file.getint(section, FONTSIZE_DIGI)
         except:
             d[FONTSIZE_DIGI] = 40
+        try:
+            # Italic gets its own size bucket; defaults to the regular size when unset
+            # (so existing skins are unchanged).
+            d[FONTSIZE_ITALIC] = config_file.getint(section, FONTSIZE_ITALIC)
+        except:
+            d[FONTSIZE_ITALIC] = d[FONTSIZE_REGULAR]
         try:
             spl = config_file.get(section, FONTCOLOR).split(',')
             d[FONTCOLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))

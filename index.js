@@ -47,6 +47,46 @@ const BackupWarnCount = 20; // warn (not block) beyond this many backups
 const BackupManifestName = 'manifest.json';
 const PeppyConfBackupName = 'peppymeter_config.txt';
 const SpectrumConfBackupName = 'spectrum_config.txt';
+const ThemeGalleryDir = PluginPath + '/theme-gallery';
+const ThemeGallerySectionPrefix = 'user_interface/peppy_screensaver/theme-gallery/';
+// Artist fanart (Item 6): on-disk cache served via /albumart?sectionimage=...
+const FanartCacheDir = PluginPath + '/fanart-cache';
+const FanartSectionPrefix = 'user_interface/peppy_screensaver/fanart-cache/';
+const FanartPersonalArtDir = '/data/albumart/personal/artist'; // Volumio's name-keyed artist art store
+const FANART_TV_PROJECT_KEY = '9bb4ee75161ec1245cb377bf2716b90b'; // distributable project key (Peppy Screensaver)
+const FANART_TTL_MS = 14 * 24 * 60 * 60 * 1000; // refresh online results every 14 days
+const FANART_IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp'];
+const FANART_MAX_IMAGES = 30; // bound cache/CPU per artist
+// Remote handler-manifest contract (server-authoritative runtime sync for peppy_remote).
+// api/min_remote_api gate the handler/wire protocol independently of the marketing version.
+const REMOTE_API_VERSION = 1;
+const REMOTE_MIN_API_VERSION = 1;
+// Files the remote client may request. The manifest is generated live from disk, so it can
+// never drift from what actually ships; these regexes are the only trust boundary.
+const REMOTE_HANDLER_NAME_REGEX = /^(volumio_[A-Za-z0-9_]+\.py|screensaverspectrum\.py)$/;
+const REMOTE_FONT_NAME_REGEX = /^[A-Za-z0-9 ._\-]+\.(ttf|otf)$/;
+const REMOTE_CAPABILITIES = ['fanart', 'folderlayer', 'italic', 'samplerate_color', 'progress_markers', 'spectrum', 'remote'];
+const THEME_PREVIEW_FILES = ['preview.png', 'preview.jpg', 'preview.jpeg', 'art.png', 'art.jpg'];
+const THEME_GALLERY_COLS = 3;
+const THEME_GALLERY_IMG_WIDTH = 200;
+const THEME_GALLERY_ACTIVE_BORDER = '#54C688';
+const THEME_GALLERY_ACTIVE_SHADOW = '#2a6848';
+// Gallery preview resolution logging — gated by peppy_config debug.level
+// basic: resolved source; verbose: candidates/skips; trace: per-section detail
+function galleryLog(logger, level, msg) {
+    if (!peppy_config || !peppy_config.current) return;
+    var cfgLevel = peppy_config.current['debug.level'] || 'off';
+    var levels = { 'off': 0, 'basic': 1, 'verbose': 2, 'trace': 3 };
+    if ((levels[cfgLevel] || 0) >= (levels[level] || 0)) {
+        logger.info(id + 'GALLERY: ' + msg);
+    }
+}
+
+const THEME_PREVIEW_METER_KEYS = [
+  { key: 'meter.preview', source: 'meter.preview' },
+  { key: 'screen.bgr', source: 'screen.bgr' },
+  { key: 'bgr.filename', source: 'bgr.filename' }
+];
 
 var minmax = new Array(16);
 var last_outputdevice, last_softmixer;
@@ -469,6 +509,60 @@ peppyScreensaver.prototype.onStart = function() {
         method: 'getVinylImage'
     });
     self.logger.info(id + 'REST endpoint registered: peppy_screensaver_vinyl');
+
+    // Theme gallery: select via clickable name links (select.html shim POSTs to REST, then redirects)
+    // POST /api/v1/pluginEndpoint  body: { endpoint: 'peppy_screensaver_theme', data: { folder: '1280x720_MyTheme_style' } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_theme',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'selectThemeFromGallery'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_theme');
+
+    // Extra folder-image layer (Item 5): fetch a decorative image from the playing
+    // track's folder. POST { endpoint: 'peppy_screensaver_folderimage', data: { uri, filenames } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_folderimage',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getFolderImage'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_folderimage');
+
+    // Artist fanart slideshow (Item 6): server resolves the cascade (personal folder ->
+    // fanart/ subfolder -> fanart.tv -> meta.volumio.org) and returns sectionimage paths.
+    // POST { endpoint: 'peppy_screensaver_artistfanart', data: { artist, uri } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_artistfanart',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getArtistFanart'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_artistfanart');
+
+    // Server-authoritative handler manifest for peppy_remote: lists the exact handler
+    // (.py) and font files this plugin runs, with sha256 + the API contract, so a remote
+    // can hydrate byte-identical handlers from the server it connects to (no GitHub branch
+    // coupling, no hardcoded file lists). GET/POST { endpoint: 'peppy_screensaver_manifest' }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_manifest',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getRemoteManifest'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_manifest');
+
+    // Companion file-delivery endpoint: returns a single manifest-listed handler or font
+    // as base64. Strictly whitelisted by name regex (no path traversal).
+    // POST { endpoint: 'peppy_screensaver_file', data: { kind: 'handler'|'font', name } }
+    self.commandRouter.addPluginRestEndpoint({
+        endpoint: 'peppy_screensaver_file',
+        type: 'user_interface',
+        name: 'peppy_screensaver',
+        method: 'getRemoteFile'
+    });
+    self.logger.info(id + 'REST endpoint registered: peppy_screensaver_file');
     
     // Initialize config version on startup
     self.updateConfigVersion();
@@ -588,7 +682,38 @@ peppyScreensaver.prototype.getUIConfig = function() {
         __dirname + '/UIConfig.json')
         .then(function(uiconf)
         {
-        
+
+        // Resolve a control by its (now unique) id, independent of which section or
+        // position it occupies. This keeps getUIConfig correct across settings
+        // reorganisation (no hard-coded sections[N].content[M] indices to drift).
+        var C = function (controlId) {
+            for (var _si = 0; _si < uiconf.sections.length; _si++) {
+                var _content = uiconf.sections[_si] && uiconf.sections[_si].content;
+                if (!_content) { continue; }
+                for (var _ci = 0; _ci < _content.length; _ci++) {
+                    if (_content[_ci] && _content[_ci].id === controlId) { return _content[_ci]; }
+                }
+            }
+            self.logger.error(id + 'getUIConfig: control id not found: ' + controlId);
+            return { value: {}, options: [], attributes: [{}, {}, {}, {}] };
+        };
+
+        // Build the configManager path string ('sections[..].content[..].options') for a
+        // control by id, so pushUIConfigParam stays position-independent too.
+        var P = function (controlId) {
+            for (var _si = 0; _si < uiconf.sections.length; _si++) {
+                var _content = uiconf.sections[_si] && uiconf.sections[_si].content;
+                if (!_content) { continue; }
+                for (var _ci = 0; _ci < _content.length; _ci++) {
+                    if (_content[_ci] && _content[_ci].id === controlId) {
+                        return 'sections[' + _si + '].content[' + _ci + '].options';
+                    }
+                }
+            }
+            self.logger.error(id + 'getUIConfig: option-path id not found: ' + controlId);
+            return 'sections[' + 0 + '].content[' + 0 + '].options';
+        };
+
         // section 0 -----------------------------        
         if (fs.existsSync(PeppyConf)){
             // read values from ini
@@ -598,21 +723,21 @@ peppyScreensaver.prototype.getUIConfig = function() {
             
             var alsaconf = parseInt(self.config.get('alsaSelection'),10);
                 if (self.config.get('useDSP')) {
-                    uiconf.sections[0].content[0].value.value = 0;
-                    uiconf.sections[0].content[0].value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_0');
+                    C('alsaSelection').value.value = 0;
+                    C('alsaSelection').value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_0');
                 } else {
-                    uiconf.sections[0].content[0].value.value = alsaconf;
-                    uiconf.sections[0].content[0].value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_' + self.config.get('alsaSelection'));
+                    C('alsaSelection').value.value = alsaconf;
+                    C('alsaSelection').value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ALSA_SELECTION_' + self.config.get('alsaSelection'));
                 }
                 
                 // Dsp integration
                 if (fs.existsSync(dsp_config)){
                     var useDSP = self.config.get('useDSP');
-                    uiconf.sections[0].content[1].value = useDSP;
+                    C('useDSP').value = useDSP;
                     self.checkDSPactive(!useDSP);
                 } else {
                     self.config.set('useDSP', false);
-                    uiconf.sections[0].content[1].hidden = true;
+                    C('useDSP').hidden = true;
                 }
                 // Spotify integration
                 if (fs.existsSync(spotify_config)){
@@ -620,35 +745,40 @@ peppyScreensaver.prototype.getUIConfig = function() {
                         if (self.config.get('useDSP')) {
                             self.config.set('useSpotify', false);
                         } else {
-                            uiconf.sections[0].content[2].value = self.config.get('useSpotify');
-                            uiconf.sections[0].content[3].value = self.config.get('useUSBDAC');
+                            C('useSpotify').value = self.config.get('useSpotify');
+                            C('useUSBDAC').value = self.config.get('useUSBDAC');
                         }
                     } else {
-                        uiconf.sections[0].content[2].hidden = true; // hide spotify
-                        uiconf.sections[0].content[3].hidden = true; // hide USB-DAC
+                        C('useSpotify').hidden = true; // hide spotify
+                        C('useUSBDAC').hidden = true; // hide USB-DAC
                     }
                 } else {
                     self.config.set('useSpotify', false);
-                    uiconf.sections[0].content[2].hidden = true;
-                    uiconf.sections[0].content[3].hidden = true;
+                    C('useSpotify').hidden = true;
+                    C('useUSBDAC').hidden = true;
                 }
                 // Airplay integration
                 if (self.getPluginStatus ('music_service', 'airplay_emulation') === 'STARTED'){
                     if (self.config.get('useDSP')) {
                         self.config.set('useAirplay', false);
                     } else {
-                        uiconf.sections[0].content[4].value = self.config.get('useAirplay');
+                        C('useAirplay').value = self.config.get('useAirplay');
                     }
                 } else {
-                    uiconf.sections[0].content[4].hidden = true;
+                    C('useAirplay').hidden = true;
                 }
             
             // screensaver timeout
-            uiconf.sections[0].content[5].value = self.config.get('timeout');
-            minmax[0] = [uiconf.sections[0].content[5].attributes[2].min,
-                uiconf.sections[0].content[5].attributes[3].max,
-                uiconf.sections[0].content[5].attributes[0].placeholder];
+            C('timeout').value = self.config.get('timeout');
+            minmax[0] = [C('timeout').attributes[2].min,
+                C('timeout').attributes[3].max,
+                C('timeout').attributes[0].placeholder];
             
+            // Theme-to-remove: empty placeholder first so nothing is pre-selected for deletion
+            self.configManager.pushUIConfigParam(uiconf, P('themeToRemove'), {
+                value: '',
+                label: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE')
+            });
             // active folder
             // fill selection list with custom folders
             var files = fs.readdirSync(base_folder_P);
@@ -657,102 +787,123 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 if (stat.isDirectory() && file.includes ('_')) {
                     var partFile = file.split('_');
                     var str_empty = fs.existsSync(base_folder_P + file + '/meters.txt') ? '' : ' (empty)';
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[0].content[6].options', {
+                    var folderLabel = (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty;
+                    self.configManager.pushUIConfigParam(uiconf, P('activeFolder'), {
                         value: file,
-                        label: (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty
+                        label: folderLabel
+                    });
+                    // Theme gallery section (sections[1]): populate the "theme to remove" dropdown
+                    self.configManager.pushUIConfigParam(uiconf, P('themeToRemove'), {
+                        value: file,
+                        label: folderLabel
                     });
                 }
             });
+            // Default the remove dropdown to the empty placeholder (no destructive pre-selection)
+            C('themeToRemove').value.value = '';
+            C('themeToRemove').value.label = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_NONE');
+            // Artwork: artist fanart slideshow controls (Item 6)
+            C('fanartEnabled').value = self.config.get('fanartEnabled') === true;
+            var fanartKeyMode = self.config.get('fanartKeyMode') || 'personal';
+            C('fanartKeyMode').value.value = fanartKeyMode;
+            C('fanartKeyMode').value.label = self.commandRouter.getI18nString(fanartKeyMode === 'project' ? 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT' : 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL');
+            C('fanart_personal_key').value = self.config.get('fanart_personal_key') || '';
+            C('fanartInterval').value = parseInt(self.config.get('fanartInterval'), 10) || 0;
+            var fanartTransition = self.config.get('fanartTransition') || 'none';
+            var fanartTransitionLabels = {none: 'PEPPY_SCREENSAVER.FANART_TRANSITION_NONE', fade: 'PEPPY_SCREENSAVER.FANART_TRANSITION_FADE', merge: 'PEPPY_SCREENSAVER.FANART_TRANSITION_MERGE'};
+            C('fanartTransition').value.value = fanartTransition;
+            C('fanartTransition').value.label = self.commandRouter.getI18nString(fanartTransitionLabels[fanartTransition] || fanartTransitionLabels.none);
+            C('fanartTransitionMs').value = parseInt(self.config.get('fanartTransitionMs'), 10) || 600;
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
                 var partFile = meterFolder.split('_');
                 var str_empty = fs.existsSync(base_folder_P + meterFolder + '/meters.txt') ? '' : ' (empty)';
-                uiconf.sections[0].content[6].value.value = meterFolder;
-                uiconf.sections[0].content[6].value.label = (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty;
+                C('activeFolder').value.value = meterFolder;
+                C('activeFolder').value.label = (partFile[1]).replace(upperc, c => c.toUpperCase()) + '-' +  partFile[2] + ' ' + partFile[0] + str_empty;
             } else {
-                uiconf.sections[0].content[6].value.value = self.config.get('activeFolder');
-                uiconf.sections[0].content[6].value.label = self.config.get('activeFolder_title');
+                C('activeFolder').value.value = self.config.get('activeFolder');
+                C('activeFolder').value.label = self.config.get('activeFolder_title');
             }
 
             if (use_SDL2) {
             // position type
                 if (peppy_config.current['position.type'] == 'center') { 
-                    uiconf.sections[0].content[7].value.value = 0;
-                    uiconf.sections[0].content[7].value.label = 'centered';
+                    C('positionType').value.value = 0;
+                    C('positionType').value.label = 'centered';
                 } else {
-                    uiconf.sections[0].content[7].value.value = 1;
-                    uiconf.sections[0].content[7].value.label = 'manually';
+                    C('positionType').value.value = 1;
+                    C('positionType').value.label = 'manually';
                 }
             // position x
-                uiconf.sections[0].content[8].value = parseInt(peppy_config.current['position.x'], 10);
-                minmax[1] = [uiconf.sections[0].content[8].attributes[2].min,
-                    uiconf.sections[0].content[8].attributes[3].max,
-                    uiconf.sections[0].content[8].attributes[0].placeholder];
+                C('position_x').value = parseInt(peppy_config.current['position.x'], 10);
+                minmax[1] = [C('position_x').attributes[2].min,
+                    C('position_x').attributes[3].max,
+                    C('position_x').attributes[0].placeholder];
             // position y
-                uiconf.sections[0].content[9].value = parseInt(peppy_config.current['position.y'], 10);
-                minmax[2] = [uiconf.sections[0].content[9].attributes[2].min,
-                    uiconf.sections[0].content[9].attributes[3].max,
-                    uiconf.sections[0].content[9].attributes[0].placeholder];
+                C('position_y').value = parseInt(peppy_config.current['position.y'], 10);
+                minmax[2] = [C('position_y').attributes[2].min,
+                    C('position_y').attributes[3].max,
+                    C('position_y').attributes[0].placeholder];
             // animation
                 var animation = (peppy_config.current['start.animation']).toLowerCase() == 'true' ? true : false;
-                uiconf.sections[0].content[10].value = animation;
+                C('animation').value = animation;
             } else {
-                uiconf.sections[0].content[7].hidden = true;
-                uiconf.sections[0].content[7].value.value = 0;
-                uiconf.sections[0].content[7].value.label = 'centered';
+                C('positionType').hidden = true;
+                C('positionType').value.value = 0;
+                C('positionType').value.label = 'centered';
 
-                uiconf.sections[0].content[10].hidden = true; // animation
-                uiconf.sections[0].content[10].value = false;
+                C('animation').hidden = true; // animation
+                C('animation').value = false;
             }
 
             // smooth buffer
-            uiconf.sections[0].content[11].value = parseInt(peppy_config.data.source['smooth.buffer.size'], 10);                                
-            minmax[3] = [uiconf.sections[0].content[11].attributes[2].min,
-                uiconf.sections[0].content[11].attributes[3].max,
-                uiconf.sections[0].content[11].attributes[0].placeholder];
+            C('smoothBuffer').value = parseInt(peppy_config.data.source['smooth.buffer.size'], 10);                                
+            minmax[3] = [C('smoothBuffer').attributes[2].min,
+                C('smoothBuffer').attributes[3].max,
+                C('smoothBuffer').attributes[0].placeholder];
 
             // for installed memory < 4Gb hide needle cache
             if (lt_4GB) {
-                uiconf.sections[0].content[12].hidden = true;
-                uiconf.sections[0].content[12].value = false;
+                C('needleCache').hidden = true;
+                C('needleCache').value = false;
             } else {
             // needle cache
                 var needleCache = (peppy_config.current['use.cache']).toLowerCase() == 'true' ? true : false;
-                uiconf.sections[0].content[12].value = needleCache;
+                C('needleCache').value = needleCache;
 
             // cache size
-                uiconf.sections[0].content[13].value = parseInt(peppy_config.current['cache.size'], 10);                                
-                minmax[4] = [uiconf.sections[0].content[13].attributes[2].min,
-                    uiconf.sections[0].content[13].attributes[3].max,
-                    uiconf.sections[0].content[13].attributes[0].placeholder];
+                C('cachesize').value = parseInt(peppy_config.current['cache.size'], 10);                                
+                minmax[4] = [C('cachesize').attributes[2].min,
+                    C('cachesize').attributes[3].max,
+                    C('cachesize').attributes[0].placeholder];
             }
 
             // meter sensitivity
-            uiconf.sections[0].content[14].value = parseInt(peppy_config.data.source['volume.gain.db'], 10) || 0;
-            minmax[15] = [uiconf.sections[0].content[14].attributes[2].min,
-                uiconf.sections[0].content[14].attributes[3].max,
-                uiconf.sections[0].content[14].attributes[0].placeholder];
+            C('meterGain').value = parseInt(peppy_config.data.source['volume.gain.db'], 10) || 0;
+            minmax[15] = [C('meterGain').attributes[2].min,
+                C('meterGain').attributes[3].max,
+                C('meterGain').attributes[0].placeholder];
             
             // mouse support
             var mouseSupport = (peppy_config.sdl.env['mouse.enabled']).toLowerCase() == 'true' ? true : false;
-            uiconf.sections[0].content[15].value = mouseSupport;
+            C('mouseEnabled').value = mouseSupport;
 
             // display output
-            uiconf.sections[0].content[16].value.value = self.config.get('displayOutput');
-            uiconf.sections[0].content[16].value.label = 'Display=' + self.config.get('displayOutput');
-            uiconf.sections[0].content[17].value = self.config.get('doNotDeleteThemes') === true;
+            C('displayOutput').value.value = self.config.get('displayOutput');
+            C('displayOutput').value.label = 'Display=' + self.config.get('displayOutput');
+            C('doNotDeleteThemes').value = self.config.get('doNotDeleteThemes') === true;
 
             // use system fonts (from config.txt, default false = use PeppyFont)
             var useSystemFonts = false;
             try {
                 useSystemFonts = (peppy_config.current['use.system.fonts'] || '').toLowerCase() === 'true';
             } catch (e) {}
-            uiconf.sections[0].content[18].value = useSystemFonts;
+            C('useSystemFonts').value = useSystemFonts;
 
             // SMB share access (from config.json, default false)
             var smbEnabled = self.config.get('smbShareAccess') === true;
-            uiconf.sections[0].content[19].value = smbEnabled;
+            C('smbShareAccess').value = smbEnabled;
             
             // Normalize template permissions on settings page access
             // Reclaims ownership from SMB-created files (nobody:nogroup -> volumio:volumio)
@@ -776,16 +927,16 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 '120': 'PEPPY_SCREENSAVER.PERSIST_120',
                 '300': 'PEPPY_SCREENSAVER.PERSIST_300'
             };
-            uiconf.sections[6].content[0].value.value = persistVal;
-            uiconf.sections[6].content[0].value.label = self.commandRouter.getI18nString(persistLabels[persistVal] || 'PEPPY_SCREENSAVER.PERSIST_30');
+            C('persist_duration').value.value = persistVal;
+            C('persist_duration').value.label = self.commandRouter.getI18nString(persistLabels[persistVal] || 'PEPPY_SCREENSAVER.PERSIST_30');
 
             var persistDisplayVal = self.config.get('persist_display') || 'freeze';
             var persistDisplayLabels = {
                 'freeze': 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE',
                 'countdown': 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_COUNTDOWN'
             };
-            uiconf.sections[6].content[1].value.value = persistDisplayVal;
-            uiconf.sections[6].content[1].value.label = self.commandRouter.getI18nString(persistDisplayLabels[persistDisplayVal] || 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE');
+            C('persist_display').value.value = persistDisplayVal;
+            C('persist_display').value.label = self.commandRouter.getI18nString(persistDisplayLabels[persistDisplayVal] || 'PEPPY_SCREENSAVER.PERSIST_DISPLAY_FREEZE');
 
             // queue mode (read from PeppyConf, fallback to config.json)
             var queueMode = 'track';
@@ -795,10 +946,10 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 queueMode = self.config.get('queue.mode') || 'track';
             }
             
-            var queueModeOptions = uiconf.sections[6].content[2].options;
+            var queueModeOptions = C('queueMode').options;
             for (var i = 0; i < queueModeOptions.length; i++) {
                 if (queueModeOptions[i].value === queueMode) {
-                    uiconf.sections[6].content[2].value = queueModeOptions[i];
+                    C('queueMode').value = queueModeOptions[i];
                     break;
                 }
             }
@@ -811,16 +962,16 @@ peppyScreensaver.prototype.getUIConfig = function() {
 
                 // current meter
                 if ((peppy_config.current.meter).includes(',')) {
-                    uiconf.sections[1].content[0].value.value = 'list';
+                    C('meter').value.value = 'list';
                 } else {
-                    uiconf.sections[1].content[0].value.value = peppy_config.current.meter;
+                    C('meter').value.value = peppy_config.current.meter;
                 }
-                uiconf.sections[1].content[0].value.label = (uiconf.sections[1].content[0].value.value).replace(upperc, c => c.toUpperCase());
+                C('meter').value.label = (C('meter').value.value).replace(upperc, c => c.toUpperCase());
 
                 // read all sections from active meters.txt and fill selection list
                 for (var section in metersconfig) {
                     availMeters += section + ', ';
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[1].content[0].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('meter'), {
                         value: section,
                         label: section.replace(upperc, c => c.toUpperCase())
                     });
@@ -829,103 +980,104 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 // list selection
                 availMeters = availMeters.substring(0, availMeters.length -2);
                 if (self.config.get('randomSelection') == '') {
-                    uiconf.sections[1].content[1].value = availMeters;
+                    C('randomSelection').value = availMeters;
                 } else {
-                    uiconf.sections[1].content[1].value = self.config.get('randomSelection');
+                    C('randomSelection').value = self.config.get('randomSelection');
                 }
-                uiconf.sections[1].content[1].doc = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.RANDOMSELECTION_DOC') + '<b>' + availMeters + '</b>';
+                C('randomSelection').doc = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.RANDOMSELECTION_DOC') + '<b>' + availMeters + '</b>';
 
                 // random mode (visible only for random and list)
-                if (uiconf.sections[1].content[0].value.value == 'random' || uiconf.sections[1].content[0].value.value == 'list') {
-                    uiconf.sections[1].content[2].hidden = false;
+                if (C('meter').value.value == 'random' || C('meter').value.value == 'list') {
+                    C('randomMode').hidden = false;
                 }
                 var random_change_title = (peppy_config.current['random.change.title']).toLowerCase() == 'true' ? true : false;
                 if (random_change_title) {
-                    uiconf.sections[1].content[2].value.value = 'titlechange';
-                    uiconf.sections[1].content[2].value.label = 'On Title Change';
+                    C('randomMode').value.value = 'titlechange';
+                    C('randomMode').value.label = 'On Title Change';
                 } else {
-                    uiconf.sections[1].content[2].value.value = 'interval';
-                    uiconf.sections[1].content[2].value.label = 'Interval';
+                    C('randomMode').value.value = 'interval';
+                    C('randomMode').value.label = 'Interval';
                 }    
                 
                 // random intervall
-                uiconf.sections[1].content[3].value = parseInt(peppy_config.current['random.meter.interval'], 10);
-                minmax[5] = [uiconf.sections[1].content[3].attributes[2].min,
-                    uiconf.sections[1].content[3].attributes[3].max,
-                    uiconf.sections[1].content[3].attributes[0].placeholder];
+                C('randomInterval').value = parseInt(peppy_config.current['random.meter.interval'], 10);
+                minmax[5] = [C('randomInterval').attributes[2].min,
+                    C('randomInterval').attributes[3].max,
+                    C('randomInterval').attributes[0].placeholder];
 
             }
             
             // section 2 - Performance settings -----------------------------
             // frame rate
             var frameRate = parseInt(peppy_config.current['frame.rate'], 10) || 30;
-            uiconf.sections[2].content[0].value = frameRate;
-            minmax[6] = [uiconf.sections[2].content[0].attributes[2].min,
-                uiconf.sections[2].content[0].attributes[3].max,
-                uiconf.sections[2].content[0].attributes[0].placeholder];
+            C('frameRate').value = frameRate;
+            minmax[6] = [C('frameRate').attributes[2].min,
+                C('frameRate').attributes[3].max,
+                C('frameRate').attributes[0].placeholder];
             
             // update interval (from peppy config.txt)
             var updateInterval = parseInt(peppy_config.current['update.interval'], 10) || 2;
-            uiconf.sections[2].content[1].value = updateInterval;
-            minmax[7] = [uiconf.sections[2].content[1].attributes[2].min,
-                uiconf.sections[2].content[1].attributes[3].max,
-                uiconf.sections[2].content[1].attributes[0].placeholder];
+            C('updateInterval').value = updateInterval;
+            minmax[7] = [C('updateInterval').attributes[2].min,
+                C('updateInterval').attributes[3].max,
+                C('updateInterval').attributes[0].placeholder];
             
             // meter delay (ms)
             var meterDelay = parseInt(peppy_config.current['meter.delay'], 10);
             if (isNaN(meterDelay)) meterDelay = 10;
-            uiconf.sections[2].content[2].value = meterDelay;
-            minmax[8] = [uiconf.sections[2].content[2].attributes[2].min,
-                uiconf.sections[2].content[2].attributes[3].max,
-                uiconf.sections[2].content[2].attributes[0].placeholder];
+            C('meterDelay').value = meterDelay;
+            minmax[8] = [C('meterDelay').attributes[2].min,
+                C('meterDelay').attributes[3].max,
+                C('meterDelay').attributes[0].placeholder];
             
             // section 4 - Scrolling settings -----------------------------
             // scrolling mode
             var scrollingMode = peppy_config.current['scrolling.mode'] || 'skin';
-            var scrollingOptions = uiconf.sections[4].content[0].options;
+            var scrollingOptions = C('scrollingMode').options;
             for (var i = 0; i < scrollingOptions.length; i++) {
                 if (scrollingOptions[i].value === scrollingMode) {
-                    uiconf.sections[4].content[0].value = scrollingOptions[i];
+                    C('scrollingMode').value = scrollingOptions[i];
                     break;
                 }
             }
             
             // scrolling speed artist
             var scrollSpeedArtist = parseInt(peppy_config.current['scrolling.speed.artist'], 10) || 40;
-            uiconf.sections[4].content[1].value = scrollSpeedArtist;
+            C('scrollingSpeedArtist').value = scrollSpeedArtist;
             
             // scrolling speed title
             var scrollSpeedTitle = parseInt(peppy_config.current['scrolling.speed.title'], 10) || 40;
-            uiconf.sections[4].content[2].value = scrollSpeedTitle;
+            C('scrollingSpeedTitle').value = scrollSpeedTitle;
             
             // scrolling speed album
             var scrollSpeedAlbum = parseInt(peppy_config.current['scrolling.speed.album'], 10) || 40;
-            uiconf.sections[4].content[3].value = scrollSpeedAlbum;
+            C('scrollingSpeedAlbum').value = scrollSpeedAlbum;
             
             // section 5 - Animation settings -----------------------------
             // transition type
             var transitionType = peppy_config.current['transition.type'] || 'fade';
-            var transitionOptions = uiconf.sections[5].content[0].options;
+            var transitionOptions = C('transitionType').options;
             for (var i = 0; i < transitionOptions.length; i++) {
                 if (transitionOptions[i].value === transitionType) {
-                    uiconf.sections[5].content[0].value = transitionOptions[i];
+                    C('transitionType').value = transitionOptions[i];
                     break;
                 }
             }
             
             // transition duration
-            var transitionDuration = parseFloat(peppy_config.current['transition.duration']) || 0.5;
-            uiconf.sections[5].content[1].value = transitionDuration;
-            minmax[9] = [uiconf.sections[5].content[1].attributes[2].min,
-                uiconf.sections[5].content[1].attributes[3].max,
-                uiconf.sections[5].content[1].attributes[0].placeholder];
+            var transitionDuration = parseFloat(peppy_config.current['transition.duration']);
+            if (isNaN(transitionDuration)) { transitionDuration = 0.5; }
+            C('transitionDuration').value = transitionDuration;
+            minmax[9] = [C('transitionDuration').attributes[2].min,
+                C('transitionDuration').attributes[3].max,
+                C('transitionDuration').attributes[0].placeholder];
             
             // transition color
             var transitionColor = peppy_config.current['transition.color'] || 'black';
-            var colorOptions = uiconf.sections[5].content[2].options;
+            var colorOptions = C('transitionColor').options;
             for (var i = 0; i < colorOptions.length; i++) {
                 if (colorOptions[i].value === transitionColor) {
-                    uiconf.sections[5].content[2].value = colorOptions[i];
+                    C('transitionColor').value = colorOptions[i];
                     break;
                 }
             }
@@ -933,60 +1085,63 @@ peppyScreensaver.prototype.getUIConfig = function() {
             // transition opacity
             var transitionOpacity = parseInt(peppy_config.current['transition.opacity'], 10);
             if (isNaN(transitionOpacity)) transitionOpacity = 100;
-            uiconf.sections[5].content[3].value = transitionOpacity;
-            minmax[10] = [uiconf.sections[5].content[3].attributes[2].min,
-                uiconf.sections[5].content[3].attributes[3].max,
-                uiconf.sections[5].content[3].attributes[0].placeholder];
+            C('transitionOpacity').value = transitionOpacity;
+            minmax[10] = [C('transitionOpacity').attributes[2].min,
+                C('transitionOpacity').attributes[3].max,
+                C('transitionOpacity').attributes[0].placeholder];
             
             // section 3 - Rotation settings -----------------------------
             // rotation quality
             var rotationQuality = peppy_config.current['rotation.quality'] || 'medium';
-            var qualityOptions = uiconf.sections[3].content[0].options;
+            var qualityOptions = C('rotationQuality').options;
             for (var i = 0; i < qualityOptions.length; i++) {
                 if (qualityOptions[i].value === rotationQuality) {
-                    uiconf.sections[3].content[0].value = qualityOptions[i];
+                    C('rotationQuality').value = qualityOptions[i];
                     break;
                 }
             }
             
             // rotation FPS (custom)
             var rotationFPS = parseInt(peppy_config.current['rotation.fps'], 10) || 8;
-            uiconf.sections[3].content[1].value = rotationFPS;
-            minmax[11] = [uiconf.sections[3].content[1].attributes[2].min,
-                uiconf.sections[3].content[1].attributes[3].max,
-                uiconf.sections[3].content[1].attributes[0].placeholder];
+            C('rotationFPS').value = rotationFPS;
+            minmax[11] = [C('rotationFPS').attributes[2].min,
+                C('rotationFPS').attributes[3].max,
+                C('rotationFPS').attributes[0].placeholder];
             
             // rotation speed (vinyl multiplier)
-            var rotationSpeed = parseFloat(peppy_config.current['rotation.speed']) || 1.0;
-            uiconf.sections[3].content[2].value = rotationSpeed;
-            minmax[12] = [uiconf.sections[3].content[2].attributes[2].min,
-                uiconf.sections[3].content[2].attributes[3].max,
-                uiconf.sections[3].content[2].attributes[0].placeholder];
+            var rotationSpeed = parseFloat(peppy_config.current['rotation.speed']);
+            if (isNaN(rotationSpeed)) { rotationSpeed = 1.0; }
+            C('rotationSpeed').value = rotationSpeed;
+            minmax[12] = [C('rotationSpeed').attributes[2].min,
+                C('rotationSpeed').attributes[3].max,
+                C('rotationSpeed').attributes[0].placeholder];
             
             // spool left speed (cassette multiplier)
-            var spoolLeftSpeed = parseFloat(peppy_config.current['spool.left.speed']) || 1.0;
-            uiconf.sections[3].content[3].value = spoolLeftSpeed;
-            minmax[13] = [uiconf.sections[3].content[3].attributes[2].min,
-                uiconf.sections[3].content[3].attributes[3].max,
-                uiconf.sections[3].content[3].attributes[0].placeholder];
+            var spoolLeftSpeed = parseFloat(peppy_config.current['spool.left.speed']);
+            if (isNaN(spoolLeftSpeed)) { spoolLeftSpeed = 1.0; }
+            C('spoolLeftSpeed').value = spoolLeftSpeed;
+            minmax[13] = [C('spoolLeftSpeed').attributes[2].min,
+                C('spoolLeftSpeed').attributes[3].max,
+                C('spoolLeftSpeed').attributes[0].placeholder];
             
             // spool right speed (cassette multiplier)
-            var spoolRightSpeed = parseFloat(peppy_config.current['spool.right.speed']) || 1.0;
-            uiconf.sections[3].content[4].value = spoolRightSpeed;
-            minmax[14] = [uiconf.sections[3].content[4].attributes[2].min,
-                uiconf.sections[3].content[4].attributes[3].max,
-                uiconf.sections[3].content[4].attributes[0].placeholder];
+            var spoolRightSpeed = parseFloat(peppy_config.current['spool.right.speed']);
+            if (isNaN(spoolRightSpeed)) { spoolRightSpeed = 1.0; }
+            C('spoolRightSpeed').value = spoolRightSpeed;
+            minmax[14] = [C('spoolRightSpeed').attributes[2].min,
+                C('spoolRightSpeed').attributes[3].max,
+                C('spoolRightSpeed').attributes[0].placeholder];
             
             // spool adaptive (dynamic speeds based on progress)
             var spoolAdaptive = peppy_config.current['spool.adaptive'] === true || peppy_config.current['spool.adaptive'] === 'true';
-            uiconf.sections[3].content[5].value = spoolAdaptive;
+            C('spoolAdaptive').value = spoolAdaptive;
             
             // reel direction
             var reelDirection = peppy_config.current['reel.direction'] || 'ccw';
-            var directionOptions = uiconf.sections[3].content[6].options;
+            var directionOptions = C('reelDirection').options;
             for (var i = 0; i < directionOptions.length; i++) {
                 if (directionOptions[i].value === reelDirection) {
-                    uiconf.sections[3].content[6].value = directionOptions[i];
+                    C('reelDirection').value = directionOptions[i];
                     break;
                 }
             }
@@ -998,17 +1153,17 @@ peppyScreensaver.prototype.getUIConfig = function() {
             if (remoteServerEnabled === undefined) {
                 remoteServerEnabled = peppy_config && peppy_config.current ? peppy_config.current['remote.server.enabled'] === 'true' : false;
             }
-            uiconf.sections[7].content[0].value = remoteServerEnabled;
+            C('remoteServerEnabled').value = remoteServerEnabled;
             
             // server mode
             var remoteServerMode = self.config.get('remoteServerMode');
             if (remoteServerMode === undefined) {
                 remoteServerMode = peppy_config && peppy_config.current ? (peppy_config.current['remote.server.mode'] || 'server_local') : 'server_local';
             }
-            var remoteServerModeOptions = uiconf.sections[7].content[1].options;
+            var remoteServerModeOptions = C('remoteServerMode').options;
             for (var i = 0; i < remoteServerModeOptions.length; i++) {
                 if (remoteServerModeOptions[i].value === remoteServerMode) {
-                    uiconf.sections[7].content[1].value = remoteServerModeOptions[i];
+                    C('remoteServerMode').value = remoteServerModeOptions[i];
                     break;
                 }
             }
@@ -1018,66 +1173,66 @@ peppyScreensaver.prototype.getUIConfig = function() {
             if (remoteDiscoveryPort === undefined) {
                 remoteDiscoveryPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.discovery.port'], 10) || 5579) : 5579;
             }
-            uiconf.sections[7].content[2].value = remoteDiscoveryPort;
+            C('remoteDiscoveryPort').value = remoteDiscoveryPort;
             
             // meters data port
             var remoteServerPort = self.config.get('remoteServerPort');
             if (remoteServerPort === undefined) {
                 remoteServerPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.server.port'], 10) || 5580) : 5580;
             }
-            uiconf.sections[7].content[3].value = remoteServerPort;
+            C('remoteServerPort').value = remoteServerPort;
             
             // spectrum port
             var remoteSpectrumPort = self.config.get('remoteSpectrumPort');
             if (remoteSpectrumPort === undefined) {
                 remoteSpectrumPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.spectrum.port'], 10) || 5581) : 5581;
             }
-            uiconf.sections[7].content[4].value = remoteSpectrumPort;
+            C('remoteSpectrumPort').value = remoteSpectrumPort;
             
             // config sync interval
             var configSyncInterval = self.config.get('configSyncInterval');
             if (configSyncInterval === undefined) {
                 configSyncInterval = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.config.sync.interval'], 10) || 1) : 1;
             }
-            uiconf.sections[7].content[5].value = configSyncInterval;
+            C('configSyncInterval').value = configSyncInterval;
             
-            // sections 8-10 - Backup and Restore (Continuity Engine) -------
-            // Section 8 (Create Backup) has nothing to populate - only the
-            // input field and its saveButton. Sections 9 (Restore) and 10
+            // sections 9-11 - Backup and Restore (Continuity Engine) -------
+            // Section 9 (Create Backup) has nothing to populate - only the
+            // input field and its saveButton. Sections 10 (Restore) and 11
             // (Delete) share the same backup list dropdown.
             var backupList = self.listSettingsBackups();
             if (backupList.length > 0) {
                 var firstLabel = backupList[0].name + ' (' + backupList[0].createdLabel + ', v' + backupList[0].pluginVersion + ')';
                 var firstValue = { value: backupList[0].name, label: firstLabel };
                 
-                // Section 9 - Restore Backup dropdown
-                uiconf.sections[9].content[0].options = [];
+                // Section 10 - Restore Backup dropdown
+                C('selectedBackup').options = [];
                 backupList.forEach(function (b) {
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[9].content[0].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('selectedBackup'), {
                         value: b.name,
                         label: b.name + ' (' + b.createdLabel + ', v' + b.pluginVersion + ')'
                     });
                 });
-                uiconf.sections[9].content[0].value = firstValue;
+                C('selectedBackup').value = firstValue;
                 
-                // Section 10 - Delete Backup dropdown (same list)
-                uiconf.sections[10].content[0].options = [];
+                // Section 11 - Delete Backup dropdown (same list)
+                C('selectedBackupDelete').options = [];
                 backupList.forEach(function (b) {
-                    self.configManager.pushUIConfigParam(uiconf, 'sections[10].content[0].options', {
+                    self.configManager.pushUIConfigParam(uiconf, P('selectedBackupDelete'), {
                         value: b.name,
                         label: b.name + ' (' + b.createdLabel + ', v' + b.pluginVersion + ')'
                     });
                 });
-                uiconf.sections[10].content[0].value = firstValue;
+                C('selectedBackupDelete').value = firstValue;
             }
             
-            // section 11 - Debug settings -----------------------------
+            // section 12 - Debug settings -----------------------------
             // debug level
             var debugLevel = peppy_config.current['debug.level'] || 'off';
-            var debugLevelOptions = uiconf.sections[11].content[0].options;
+            var debugLevelOptions = C('debugLevel').options;
             for (var i = 0; i < debugLevelOptions.length; i++) {
                 if (debugLevelOptions[i].value === debugLevel) {
-                    uiconf.sections[11].content[0].value = debugLevelOptions[i];
+                    C('debugLevel').value = debugLevelOptions[i];
                     break;
                 }
             }
@@ -1092,27 +1247,37 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 'debug.trace.time', 'debug.trace.init', 'debug.trace.fade', 'debug.trace.frame',
                 'debug.trace.remote', 'debug.trace.remote.packets'
             ];
+            // Trace switch control ids, parallel to traceKeys above (debug.* config keys).
+            var traceIds = [
+                'traceMeters', 'traceSpectrum', 'traceVinyl', 'traceReelLeft',
+                'traceReelRight', 'traceTonearm', 'traceAlbumart',
+                'traceScrolling', 'traceVolume', 'traceMute',
+                'traceShuffle', 'traceRepeat', 'tracePlaystate',
+                'traceProgress', 'traceMetadata', 'traceSeek',
+                'traceTime', 'traceInit', 'traceFade', 'traceFrame',
+                'traceRemote', 'traceRemotePackets'
+            ];
             for (var i = 0; i < traceKeys.length; i++) {
                 var traceValue = peppy_config.current[traceKeys[i]] === 'true' || peppy_config.current[traceKeys[i]] === true;
-                uiconf.sections[11].content[i + 1].value = traceValue;
+                C(traceIds[i]).value = traceValue;
             }
             
-            // section 12 - Profiling settings -----------------------------
+            // section 13 - Profiling settings -----------------------------
             // per-frame timing
             var profilingTiming = peppy_config.current['profiling.timing'] === 'true' || peppy_config.current['profiling.timing'] === true;
-            uiconf.sections[12].content[0].value = profilingTiming;
+            C('profilingTiming').value = profilingTiming;
             
             // timing interval
             var profilingInterval = parseInt(peppy_config.current['profiling.interval'], 10) || 30;
-            uiconf.sections[12].content[1].value = profilingInterval;
+            C('profilingInterval').value = profilingInterval;
             
             // cProfile enabled
             var profilingCprofile = peppy_config.current['profiling.cprofile'] === 'true' || peppy_config.current['profiling.cprofile'] === true;
-            uiconf.sections[12].content[2].value = profilingCprofile;
+            C('profilingCprofile').value = profilingCprofile;
             
             // profile duration
             var profilingDuration = parseInt(peppy_config.current['profiling.duration'], 10) || 60;
-            uiconf.sections[12].content[3].value = profilingDuration;
+            C('profilingDuration').value = profilingDuration;
             
         } else {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));            
@@ -1133,115 +1298,110 @@ peppyScreensaver.prototype.getConfigurationFiles = function() {
 	return ['config.json'];
 };
 
-// called when 'save' button pressed on global settings
+// Audio Source save handler (split out of the old global section). Selects which
+// audio stream the meters react to (ALSA capture / DSP / Spotify / AirPlay). All of
+// these live in config.json and may trigger an ALSA rebuild; a change reloads the
+// meter so it captures from the new source.
 //-------------------------------------------------------
-peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
+peppyScreensaver.prototype.saveAudioSourceConf = function (confData) {
+  const self = this;
+  let noChanges = true;
+  let uiNeedsReboot = false;
+
+  // write DSP
+  if (self.config.get('useDSP') != confData.useDSP) {
+      alsaLog(self.logger, 'basic', 'saveAudioSourceConf: useDSP toggled ' + self.config.get('useDSP') + ' -> ' + confData.useDSP);
+      self.config.set('useDSP', confData.useDSP);
+      self.checkDSPactive(!confData.useDSP);
+      self.switch_Spotify(!confData.useDSP);
+      noChanges = false;
+      uiNeedsReboot = true;
+  }
+
+  // write alsa selection
+  if (confData.useDSP) {
+      self.config.set('alsaSelection', 0);
+  } else if (self.config.get('alsaSelection') != confData.alsaSelection.value) {
+      self.config.set('alsaSelection', confData.alsaSelection.value);
+      noChanges = false;
+      uiNeedsReboot = true;
+  }
+
+  // write spotify / USB-DAC
+  if (self.getPluginStatus ('music_service', 'spop') === 'STARTED') {
+      if (confData.useDSP) {
+          self.config.set('useSpotify', false);
+      } else {
+          if (self.config.get('useSpotify') != confData.useSpotify) {
+              self.config.set('useSpotify', confData.useSpotify);
+              noChanges = false;
+              uiNeedsReboot = true;
+          }
+          if (self.config.get('useUSBDAC') != confData.useUSBDAC) {
+              self.config.set('useUSBDAC', confData.useUSBDAC);
+              noChanges = false;
+              uiNeedsReboot = true;
+          }
+      }
+  }
+
+  // write airplay
+  if (self.getPluginStatus ('music_service', 'airplay_emulation') === 'STARTED'){
+      if (confData.useDSP) {
+          self.config.set('useAirplay', false);
+          self.switch_Airplay(false);
+      } else if (self.config.get('useAirplay') != confData.useAirplay) {
+          self.config.set('useAirplay', confData.useAirplay);
+          self.switch_Airplay(confData.useAirplay);
+          noChanges = false;
+      }
+  }
+
+  if (!noChanges) {
+      // Reload the meter so it captures from the newly selected source
+      if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
+  }
+  if (uiNeedsReboot) {
+      alsaLog(self.logger, 'basic', 'saveAudioSourceConf: triggering ALSA rebuild (alsaSelection=' + self.config.get('alsaSelection') + ')');
+      self.switch_alsaConfig(parseInt(self.config.get('alsaSelection'),10));
+  }
+
+  setTimeout(function () {
+    if (noChanges) {
+        self.commandRouter.pushToastMessage('info', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+    } else {
+        self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+    }
+  }, 500);
+}; // end saveAudioSourceConf ----------------------------
+
+// Display & Activation save handler (split out of the old global section). Covers the
+// screensaver activation timeout (config.json), on-screen position + mouse pointer
+// (config.txt, SDL2) and the display output (config.json). Any change reloads the
+// running meter so it is re-rendered with the new geometry/output.
+//-------------------------------------------------------
+peppyScreensaver.prototype.saveDisplayConf = function (confData) {
   const self = this;
   let noChanges = true;
   uiNeedsUpdate = false;
-  let uiNeedsReboot = false;
 
-  // Do not delete themes: persist and sync flag file for install/uninstall scripts
-  var doNotDelete = confData.doNotDeleteThemes === true;
-  if (self.config.get('doNotDeleteThemes') !== doNotDelete) {
-    self.config.set('doNotDeleteThemes', doNotDelete);
-    noChanges = false;
+  // write timeout (config.json)
+  if (Number.isNaN(parseInt(confData.timeout, 10)) || !isFinite(confData.timeout)) {
+      uiNeedsUpdate = true;
+      setTimeout(function () {
+          self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.TIMEOUT') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+      }, 500);
+  } else {
+      confData.timeout = self.minmax('TIMEOUT', confData.timeout, minmax[0]);
+      if (confData.timeout != self.config.get('timeout')){
+          self.config.set('timeout', confData.timeout);
+          noChanges = false;
+      }
   }
-  try {
-    if (doNotDelete) {
-      if (!fs.existsSync(DATA_DIR)) { fs.mkdirSync(DATA_DIR, { recursive: true }); }
-      fs.writeFileSync(DATA_DIR + '/.preserve', '', 'utf8');
-    } else {
-      if (fs.existsSync(DATA_DIR + '/.preserve')) { fs.unlinkSync(DATA_DIR + '/.preserve'); }
-    }
-  } catch (e) {
-    self.logger.error(id + 'savePeppyMeterConf: failed to sync preserve-themes flag: ' + e.message);
-  }
-  
+
   if (fs.existsSync(PeppyConf)){
-    //var config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
 
-    // write DSP
-    if (self.config.get('useDSP') != confData.useDSP) {
-        alsaLog(self.logger, 'basic', 'savePeppyMeterConf: useDSP toggled ' + self.config.get('useDSP') + ' -> ' + confData.useDSP);
-        self.config.set('useDSP', confData.useDSP);
-        self.checkDSPactive(!confData.useDSP);
-        self.switch_Spotify(!confData.useDSP);
-        noChanges = false;
-        uiNeedsReboot = true;
-    }
-    
-    // write alsa selection
-    if (confData.useDSP) {
-        self.config.set('alsaSelection', 0);
-    } else if (self.config.get('alsaSelection') != confData.alsaSelection.value) {
-        self.config.set('alsaSelection', confData.alsaSelection.value);
-        noChanges = false;
-        uiNeedsReboot = true;
-    }
-
-    // write spotify /USB-DAC
-    if (self.getPluginStatus ('music_service', 'spop') === 'STARTED') {
-        if (confData.useDSP) {
-            self.config.set('useSpotify', false);
-            //self.switch_Spotify(false);
-        } else {
-            if (self.config.get('useSpotify') != confData.useSpotify) {
-                self.config.set('useSpotify', confData.useSpotify);
-                //self.switch_Spotify(confData.useSpotify);
-                noChanges = false;
-                uiNeedsReboot = true;
-            }
-            if (self.config.get('useUSBDAC') != confData.useUSBDAC) {
-                self.config.set('useUSBDAC', confData.useUSBDAC);
-                noChanges = false;
-                uiNeedsReboot = true;
-            }
-        }
-    }
-    
-    // write airplay
-    if (self.getPluginStatus ('music_service', 'airplay_emulation') === 'STARTED'){
-        if (confData.useDSP) {
-            self.config.set('useAirplay', false);
-            self.switch_Airplay(false);
-        } else if (self.config.get('useAirplay') != confData.useAirplay) {
-            self.config.set('useAirplay', confData.useAirplay);
-            self.switch_Airplay(confData.useAirplay);
-            noChanges = false;
-        }
-    }
-    
-    // write timeout
-    if (Number.isNaN(parseInt(confData.timeout, 10)) || !isFinite(confData.timeout)) {
-        uiNeedsUpdate = true;
-        setTimeout(function () {
-            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.TIMEOUT') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-        }, 500);
-    } else {
-        confData.timeout = self.minmax('TIMEOUT', confData.timeout, minmax[0]);
-        if (confData.timeout != self.config.get('timeout')){        
-            self.config.set('timeout', confData.timeout);
-            noChanges = false;
-        }
-    }
-   
-    // write active folder
-    if (peppy_config.current[meterFolderStr] !== confData.activeFolder.value) {
-        peppy_config.current[meterFolderStr] = confData.activeFolder.value;
-        spectrum_config.current[SpectrumFolderStr] = confData.activeFolder.value;
-        self.config.set('activeFolder', confData.activeFolder.value);
-        self.config.set('activeFolder_title', confData.activeFolder.label);
-        // reset active meter and save also
-        peppy_config.current.meter = 'random';
-        self.config.set('randomSelection', '');
-        noChanges = false;
-        uiNeedsUpdate = true;
-        self.checkMetersFile();
-    }
-
-
-    // write position type        
+    // write position type
     var pos_type = use_SDL2 ? confData.positionType.value == 0? 'center' : 'manual' : 'center';
     if (peppy_config.current['position.type'] !== pos_type) {
         peppy_config.current['position.type'] = pos_type;
@@ -1274,90 +1434,6 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
                 noChanges = false;
             }
         }
-        // write animation
-        var animation = confData.animation? 'True' : 'False';
-        if (peppy_config.current['start.animation'] != animation) {
-            peppy_config.current['start.animation'] = animation;
-            noChanges = false;
-        }
-        // write use system fonts
-        var useSystemFonts = confData.useSystemFonts ? 'True' : 'False';
-        if (peppy_config.current['use.system.fonts'] != useSystemFonts) {
-            peppy_config.current['use.system.fonts'] = useSystemFonts;
-            noChanges = false;
-        }
-    }
-    
-    // SMB share access (stored in config.json only, not config.txt)
-    var smbShareAccess = confData.smbShareAccess === true;
-    if (self.config.get('smbShareAccess') !== smbShareAccess) {
-        self.config.set('smbShareAccess', smbShareAccess);
-        self.normalizeTemplatePermissions(smbShareAccess);
-        noChanges = false;
-    }
-    
-    // write screen width/height
-    var dimensions = {'width':'', 'height':''};
-    var files = fs.readdirSync(base_folder_P + confData.activeFolder.value);
-    files.forEach(file => {
-        if (file.indexOf('-ext.') >= 0) {
-            dimensions = sizeOf(base_folder_P + confData.activeFolder.value + '/' + file);
-            files.length = 0;
-        }
-    });    
-    peppy_config.current['screen.width'] = dimensions.width;
-    peppy_config.current['screen.height'] = dimensions.height;
-    
-    
-    // write needle cache
-    var needleCache = lt_4GB ? 'False' : confData.needleCache? 'True' : 'False';
-    if (peppy_config.current['use.cache'] != needleCache) {
-        peppy_config.current['use.cache'] = needleCache;
-        noChanges = false;
-    }
-
-    // write cache size
-    if (!lt_4GB) {
-        if (Number.isNaN(parseInt(confData.cachesize, 10)) || !isFinite(confData.cachesize)) {
-            uiNeedsUpdate = true;
-            setTimeout(function () {
-                self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CACHESIZE') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-            }, 500);
-        } else {
-            confData.cachesize = self.minmax('CACHESIZE', confData.cachesize, minmax[4]);
-            if (peppy_config.current['cache.size'] != confData.cachesize) {
-                peppy_config.current['cache.size'] = confData.cachesize;
-                noChanges = false;
-            }
-        }
-    }
-    
-    // smooth buffer
-    if (Number.isNaN(parseInt(confData.smoothBuffer, 10)) || !isFinite(confData.smoothBuffer)) {
-        uiNeedsUpdate = true;
-        setTimeout(function () {
-            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SMOOTH_BUFFER') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-        }, 500);
-    } else {
-        confData.smoothBuffer = self.minmax('SMOOTH_BUFFER', confData.smoothBuffer, minmax[3]);
-        if (peppy_config.data.source['smooth.buffer.size'] != confData.smoothBuffer) {
-            peppy_config.data.source['smooth.buffer.size'] = confData.smoothBuffer;
-            noChanges = false;
-        }
-    }
-
-    // write meter sensitivity (gain in dB, consumed by the data source)
-    if (Number.isNaN(parseInt(confData.meterGain, 10)) || !isFinite(confData.meterGain)) {
-        uiNeedsUpdate = true;
-        setTimeout(function () {
-            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.METER_SENSITIVITY') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
-        }, 500);
-    } else {
-        confData.meterGain = self.minmax('METER_SENSITIVITY', confData.meterGain, minmax[15]);
-        if (peppy_config.data.source['volume.gain.db'] != confData.meterGain) {
-            peppy_config.data.source['volume.gain.db'] = confData.meterGain;
-            noChanges = false;
-        }
     }
 
     // write mouse support
@@ -1367,38 +1443,24 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         noChanges = false;
     }
 
-    // write display port
+    // write display port (config.json + live switch)
     if (self.config.get('displayOutput') != confData.displayOutput.value) {
         self.config.set('displayOutput', confData.displayOutput.value);
         var DispOut = parseInt(confData.displayOutput.value,10);
         self.switch_DisplayPort(DispOut);
         noChanges = false;
     }
-        
+
     if (!noChanges) {
         fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, {whitespace: true}));
-        fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, {whitespace: true}));
         // Restart meter to apply new settings
         if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
-        // unmount /tmp/config to make changes permanent
-        //self.unmount_tmpl(SpectrumConf)
-        //    .then(function() {
-        //        fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, {whitespace: true}));
-        //        fs.copySync(SpectrumConf, SpectrumTmp); // copy orignal template file to /tmp
-        //        self.mount_tmpl(SpectrumTmp, SpectrumConf); // mount over original template
-        //    }
-        //);
     }
   } else {
       self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));
   }
-  
+
   if (uiNeedsUpdate) {self.updateUIConfig();}
-  if (uiNeedsReboot) {
-      alsaLog(self.logger, 'basic', 'savePeppyMeterConf: triggering ALSA rebuild (alsaSelection=' + self.config.get('alsaSelection') + ')');
-      self.switch_alsaConfig(parseInt(self.config.get('alsaSelection'),10));
-      //self.rebootMessage();}
-  }
 
   setTimeout(function () {
     if (noChanges) {
@@ -1407,8 +1469,31 @@ peppyScreensaver.prototype.savePeppyMeterConf = function (confData) {
         self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
     }
   }, 500);
-  
-}; // end savePeppyMeterConf ----------------------------
+}; // end saveDisplayConf ----------------------------
+
+// Template File Sharing (SMB) save handler.
+// Only toggles config.json + filesystem permissions used for sharing templates over
+// the network share; it has no effect on the running meter, so no reload is needed.
+// ---------------------------------------------------------------
+peppyScreensaver.prototype.saveSmbShareConf = function (confData) {
+  const self = this;
+  let noChanges = true;
+
+  var smbShareAccess = confData.smbShareAccess === true;
+  if (self.config.get('smbShareAccess') !== smbShareAccess) {
+    self.config.set('smbShareAccess', smbShareAccess);
+    self.normalizeTemplatePermissions(smbShareAccess);
+    noChanges = false;
+  }
+
+  setTimeout(function () {
+    if (noChanges) {
+      self.commandRouter.pushToastMessage('info', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+    } else {
+      self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+    }
+  }, 500);
+}; // end saveSmbShareConf ----------------------------
 
 // called when 'save' button pressed on Playback Behavior settings
 // ---------------------------------------------------------------
@@ -1517,6 +1602,34 @@ peppyScreensaver.prototype.saveVUMeterConf = function (confData) {
             noChanges = false;
         }
     }
+
+    // smooth buffer (moved here from the global section: meter feel)
+    if (Number.isNaN(parseInt(confData.smoothBuffer, 10)) || !isFinite(confData.smoothBuffer)) {
+        uiNeedsUpdate = true;
+        setTimeout(function () {
+            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SMOOTH_BUFFER') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+        }, 500);
+    } else {
+        confData.smoothBuffer = self.minmax('SMOOTH_BUFFER', confData.smoothBuffer, minmax[3]);
+        if (peppy_config.data.source['smooth.buffer.size'] != confData.smoothBuffer) {
+            peppy_config.data.source['smooth.buffer.size'] = confData.smoothBuffer;
+            noChanges = false;
+        }
+    }
+
+    // meter sensitivity (gain in dB, consumed by the data source)
+    if (Number.isNaN(parseInt(confData.meterGain, 10)) || !isFinite(confData.meterGain)) {
+        uiNeedsUpdate = true;
+        setTimeout(function () {
+            self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.METER_SENSITIVITY') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+        }, 500);
+    } else {
+        confData.meterGain = self.minmax('METER_SENSITIVITY', confData.meterGain, minmax[15]);
+        if (peppy_config.data.source['volume.gain.db'] != confData.meterGain) {
+            peppy_config.data.source['volume.gain.db'] = confData.meterGain;
+            noChanges = false;
+        }
+    }
     
     if (!noChanges) {
         fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, {whitespace: true}));
@@ -1585,6 +1698,29 @@ peppyScreensaver.prototype.savePerformanceConf = function (confData) {
         if (peppy_config.current['meter.delay'] != confData.meterDelay) {
             peppy_config.current['meter.delay'] = confData.meterDelay;
             noChanges = false;
+        }
+    }
+
+    // needle cache (moved here from the global section: render/CPU tuning)
+    var needleCache = lt_4GB ? 'False' : confData.needleCache? 'True' : 'False';
+    if (peppy_config.current['use.cache'] != needleCache) {
+        peppy_config.current['use.cache'] = needleCache;
+        noChanges = false;
+    }
+
+    // cache size (moved here from the global section)
+    if (!lt_4GB) {
+        if (Number.isNaN(parseInt(confData.cachesize, 10)) || !isFinite(confData.cachesize)) {
+            uiNeedsUpdate = true;
+            setTimeout(function () {
+                self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CACHESIZE') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
+            }, 500);
+        } else {
+            confData.cachesize = self.minmax('CACHESIZE', confData.cachesize, minmax[4]);
+            if (peppy_config.current['cache.size'] != confData.cachesize) {
+                peppy_config.current['cache.size'] = confData.cachesize;
+                noChanges = false;
+            }
         }
     }
     
@@ -1672,6 +1808,16 @@ peppyScreensaver.prototype.saveAnimationConf = function (confData) {
   uiNeedsUpdate = false;
   
   if (fs.existsSync(PeppyConf)){
+
+    // start/stop animation on/off (moved here from the global section). start.animation
+    // is only meaningful with SDL2, matching the control's visibility in getUIConfig.
+    if (use_SDL2) {
+        var startAnimation = confData.animation ? 'True' : 'False';
+        if (peppy_config.current['start.animation'] != startAnimation) {
+            peppy_config.current['start.animation'] = startAnimation;
+            noChanges = false;
+        }
+    }
     
     // write transition type
     var transitionType = confData.transitionType.value || 'fade';
@@ -1687,7 +1833,7 @@ peppyScreensaver.prototype.saveAnimationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.TRANSITION_DURATION') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.transitionDuration = self.minmax('TRANSITION_DURATION', confData.transitionDuration, minmax[9]);
+        confData.transitionDuration = self.minmax('TRANSITION_DURATION', confData.transitionDuration, minmax[9], true);
         if (peppy_config.current['transition.duration'] != confData.transitionDuration) {
             peppy_config.current['transition.duration'] = confData.transitionDuration;
             noChanges = false;
@@ -1778,7 +1924,7 @@ peppyScreensaver.prototype.saveRotationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.ROTATION_SPEED') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.rotationSpeed = self.minmax('ROTATION_SPEED', confData.rotationSpeed, minmax[12]);
+        confData.rotationSpeed = self.minmax('ROTATION_SPEED', confData.rotationSpeed, minmax[12], true);
         if (peppy_config.current['rotation.speed'] != confData.rotationSpeed) {
             peppy_config.current['rotation.speed'] = confData.rotationSpeed;
             noChanges = false;
@@ -1792,7 +1938,7 @@ peppyScreensaver.prototype.saveRotationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SPOOL_LEFT_SPEED') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.spoolLeftSpeed = self.minmax('SPOOL_LEFT_SPEED', confData.spoolLeftSpeed, minmax[13]);
+        confData.spoolLeftSpeed = self.minmax('SPOOL_LEFT_SPEED', confData.spoolLeftSpeed, minmax[13], true);
         if (peppy_config.current['spool.left.speed'] != confData.spoolLeftSpeed) {
             peppy_config.current['spool.left.speed'] = confData.spoolLeftSpeed;
             noChanges = false;
@@ -1806,7 +1952,7 @@ peppyScreensaver.prototype.saveRotationConf = function (confData) {
             self.commandRouter.pushToastMessage('error', self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.SPOOL_RIGHT_SPEED') + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NAN'));
         }, 500);
     } else {
-        confData.spoolRightSpeed = self.minmax('SPOOL_RIGHT_SPEED', confData.spoolRightSpeed, minmax[14]);
+        confData.spoolRightSpeed = self.minmax('SPOOL_RIGHT_SPEED', confData.spoolRightSpeed, minmax[14], true);
         if (peppy_config.current['spool.right.speed'] != confData.spoolRightSpeed) {
             peppy_config.current['spool.right.speed'] = confData.spoolRightSpeed;
             noChanges = false;
@@ -2144,6 +2290,129 @@ peppyScreensaver.prototype.getFont = function (data) {
   return defer.promise;
 };
 
+// Resolve the directory that holds the remote handler (.py) files. On an installed
+// plugin these live in screensaver/ (install.sh copies volumio_peppymeter/* there);
+// fall back to the repo layout (volumio_peppymeter/) for dev/test.
+peppyScreensaver.prototype.remoteHandlersDir = function () {
+  var installed = path.join(PluginPath, 'screensaver');
+  var devDir = path.join(PluginPath, 'volumio_peppymeter');
+  try {
+    if (fs.existsSync(installed) &&
+        fs.readdirSync(installed).some(function (f) { return REMOTE_HANDLER_NAME_REGEX.test(f); })) {
+      return installed;
+    }
+  } catch (e) {}
+  if (fs.existsSync(devDir)) {
+    return devDir;
+  }
+  return installed;
+};
+
+peppyScreensaver.prototype.remoteFontsDir = function () {
+  return path.join(PluginPath, 'screensaver', 'fonts');
+};
+
+// Build the entry list for one directory: [{ name, sha256, size }] for files matching
+// nameRegex. Hashing is cheap (handler files are small) and done on demand.
+peppyScreensaver.prototype.remoteManifestEntries = function (dir, nameRegex) {
+  var entries = [];
+  try {
+    if (!fs.existsSync(dir)) { return entries; }
+    fs.readdirSync(dir).forEach(function (f) {
+      if (!nameRegex.test(f)) { return; }
+      var fp = path.join(dir, f);
+      try {
+        var st = fs.statSync(fp);
+        if (!st.isFile()) { return; }
+        var buf = fs.readFileSync(fp);
+        entries.push({
+          name: f,
+          sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+          size: st.size
+        });
+      } catch (e) {}
+    });
+  } catch (e) {}
+  entries.sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+  return entries;
+};
+
+// HTTP endpoint: server-authoritative manifest of handler + font files this plugin runs.
+// Generated live from disk (cannot drift from what ships). Lets peppy_remote pull the exact
+// handler set the connected server uses, hash-verified, instead of guessing from a branch.
+// POST/GET { endpoint: 'peppy_screensaver_manifest' }
+peppyScreensaver.prototype.getRemoteManifest = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  try {
+    var handlers = self.remoteManifestEntries(self.remoteHandlersDir(), REMOTE_HANDLER_NAME_REGEX);
+    var fonts = self.remoteManifestEntries(self.remoteFontsDir(), REMOTE_FONT_NAME_REGEX);
+    defer.resolve({
+      success: true,
+      plugin_version: peppyPluginVersion,
+      api: REMOTE_API_VERSION,
+      min_remote_api: REMOTE_MIN_API_VERSION,
+      capabilities: REMOTE_CAPABILITIES,
+      handlers: handlers,
+      fonts: fonts
+    });
+  } catch (err) {
+    self.logger.error(id + 'getRemoteManifest: ' + err.message);
+    defer.resolve({ success: false, error: err.message });
+  }
+  return defer.promise;
+};
+
+// HTTP endpoint: deliver one manifest-listed handler or font as base64, with sha256 so the
+// client can verify integrity before use. Strictly whitelisted by name regex.
+// POST { endpoint: 'peppy_screensaver_file', data: { kind: 'handler'|'font', name } }
+peppyScreensaver.prototype.getRemoteFile = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var kind = (data && typeof data.kind === 'string') ? data.kind : 'handler';
+  var name = (data && typeof data.name === 'string') ? data.name : '';
+  if (!name || name.indexOf('/') !== -1 || name.indexOf('\\') !== -1 || name.indexOf('..') !== -1) {
+    defer.resolve({ success: false, error: 'invalid name' });
+    return defer.promise;
+  }
+  try {
+    var filePath = null;
+    if (kind === 'font') {
+      if (!REMOTE_FONT_NAME_REGEX.test(name)) {
+        defer.resolve({ success: false, error: 'invalid font name' });
+        return defer.promise;
+      }
+      var themeFonts = path.join(process.env.VOLUMIO_ACTIVE_UI_PATH || '/volumio/http/www', 'app', 'themes', 'volumio3', 'assets', 'variants', 'volumio', 'fonts', name);
+      var pluginFonts = path.join(self.remoteFontsDir(), name);
+      if (fs.existsSync(themeFonts)) { filePath = themeFonts; }
+      else if (fs.existsSync(pluginFonts)) { filePath = pluginFonts; }
+    } else {
+      if (!REMOTE_HANDLER_NAME_REGEX.test(name)) {
+        defer.resolve({ success: false, error: 'invalid handler name' });
+        return defer.promise;
+      }
+      var hp = path.join(self.remoteHandlersDir(), name);
+      if (fs.existsSync(hp)) { filePath = hp; }
+    }
+    if (!filePath) {
+      defer.resolve({ success: false, error: 'not found' });
+      return defer.promise;
+    }
+    var buf = fs.readFileSync(filePath, { encoding: null });
+    defer.resolve({
+      success: true,
+      kind: kind,
+      name: name,
+      sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+      data: buf.toString('base64')
+    });
+  } catch (err) {
+    self.logger.error(id + 'getRemoteFile: ' + err.message);
+    defer.resolve({ success: false, error: err.message });
+  }
+  return defer.promise;
+};
+
 // HTTP endpoint: Return vinyl image from album folder for remote clients (peppy_remote)
 // Called via: POST /api/v1/pluginEndpoint with body { endpoint: 'peppy_screensaver_vinyl', data: { uri: '...', filename: 'vinyl.jpg' } }
 peppyScreensaver.prototype.getVinylImage = function (data) {
@@ -2188,29 +2457,1307 @@ peppyScreensaver.prototype.getVinylImage = function (data) {
   return defer.promise;
 };
 
+// HTTP endpoint: Return the first matching decorative image from the playing track's
+// folder, as base64. Generalises getVinylImage for the extra folder layer (Item 5).
+// Called via: POST /api/v1/pluginEndpoint with body
+//   { endpoint: 'peppy_screensaver_folderimage', data: { uri: '...', filenames: ['back.png','logo.png',...] } }
+// Resolution and sandboxing are identical to getVinylImage (confined under /mnt).
+// For non-file sources (Spotify, webradio, etc.) the path won't exist -> { success:false }.
+peppyScreensaver.prototype.getFolderImage = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var uri = (data && typeof data.uri === 'string') ? data.uri.trim() : '';
+  var filenames = (data && Array.isArray(data.filenames)) ? data.filenames : [];
+  if (typeof filenames === 'string') {
+    filenames = filenames.split(',');
+  }
+  if (!uri || !filenames.length) {
+    defer.resolve({ success: false, error: 'invalid uri or filenames' });
+    return defer.promise;
+  }
+  var allowedExt = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+  try {
+    var san = uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, '');
+    var base = san.startsWith('/') ? '/mnt' + san : '/mnt/' + san;
+    var albumFolder = path.dirname(base);
+    var i;
+    for (i = 0; i < filenames.length; i++) {
+      var filename = (typeof filenames[i] === 'string') ? filenames[i].trim() : '';
+      if (!filename || filename.indexOf('/') !== -1 || filename.indexOf('..') !== -1) {
+        continue;
+      }
+      if (allowedExt.indexOf(path.extname(filename).toLowerCase()) === -1) {
+        continue;
+      }
+      var realPath = path.resolve(path.join(albumFolder, filename));
+      if (realPath.indexOf('/mnt/') !== 0 && realPath.indexOf('/mnt') !== 0) {
+        continue;
+      }
+      if (realPath.indexOf('..') !== -1) {
+        continue;
+      }
+      if (fs.existsSync(realPath) && fs.statSync(realPath).isFile()) {
+        var buf = fs.readFileSync(realPath, { encoding: null });
+        defer.resolve({ success: true, filename: filename, data: buf.toString('base64') });
+        return defer.promise;
+      }
+    }
+    defer.resolve({ success: false, error: 'not found' });
+  } catch (err) {
+    self.logger.error(id + 'getFolderImage: ' + err.message);
+    defer.resolve({ success: false, error: err.message });
+  }
+  return defer.promise;
+};
+
+// =============================================================================
+// Artist fanart (Item 6) - server-side retrieval + on-disk cache
+// =============================================================================
+function fanartArtistSlug(artist) {
+  return String(artist).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+}
+
+function fanartHttpsGetText(url, headers, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    var lib = url.indexOf('https') === 0 ? require('https') : require('http');
+    var req = lib.get(url, { headers: headers || {} }, function (resp) {
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        resp.resume();
+        resolve(fanartHttpsGetText(resp.headers.location, headers, timeoutMs));
+        return;
+      }
+      if (resp.statusCode !== 200) {
+        resp.resume();
+        reject(new Error('HTTP ' + resp.statusCode));
+        return;
+      }
+      var data = '';
+      resp.setEncoding('utf8');
+      resp.on('data', function (c) { data += c; });
+      resp.on('end', function () { resolve(data); });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs || 8000, function () { req.destroy(new Error('timeout')); });
+  });
+}
+
+function fanartDownloadFile(url, dest, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    var lib = url.indexOf('https') === 0 ? require('https') : require('http');
+    var req = lib.get(url, function (resp) {
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        resp.resume();
+        resolve(fanartDownloadFile(resp.headers.location, dest, timeoutMs));
+        return;
+      }
+      if (resp.statusCode !== 200) {
+        resp.resume();
+        reject(new Error('HTTP ' + resp.statusCode));
+        return;
+      }
+      var file = fs.createWriteStream(dest);
+      resp.pipe(file);
+      file.on('finish', function () { file.close(function () { resolve(true); }); });
+      file.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs || 15000, function () { req.destroy(new Error('timeout')); });
+  });
+}
+
+peppyScreensaver.prototype.fanartListLocalImages = function (dir) {
+  var out = [];
+  try {
+    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      return out;
+    }
+    fs.readdirSync(dir).forEach(function (f) {
+      if (FANART_IMAGE_EXTS.indexOf(path.extname(f).toLowerCase()) !== -1) {
+        var p = path.join(dir, f);
+        try { if (fs.statSync(p).isFile()) out.push(p); } catch (e) {}
+      }
+    });
+  } catch (e) {}
+  out.sort();
+  return out;
+};
+
+peppyScreensaver.prototype.fanartResolveArtistMusicDir = function (uri) {
+  try {
+    var san = uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, '');
+    var base = san.startsWith('/') ? '/mnt' + san : '/mnt/' + san;
+    var albumDir = path.dirname(path.resolve(base));
+    var artistDir = path.dirname(albumDir);
+    if (artistDir.indexOf('/mnt/') !== 0 || artistDir.indexOf('..') !== -1) {
+      return null;
+    }
+    return artistDir;
+  } catch (e) {
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.fanartReadManifest = function (p) {
+  try { if (fs.existsSync(p)) { return JSON.parse(fs.readFileSync(p, 'utf8')); } } catch (e) {}
+  return null;
+};
+
+peppyScreensaver.prototype.fanartWriteManifest = function (p, obj) {
+  try { fs.writeFileSync(p, JSON.stringify(obj)); } catch (e) {}
+};
+
+// Resolve artist name -> MusicBrainz MBID, cached (incl. negative results). Never guesses
+// on a low-confidence match; transient errors are not cached.
+peppyScreensaver.prototype.fanartResolveMBID = async function (artist) {
+  var self = this;
+  var key = artist.toLowerCase();
+  var cacheFile = FanartCacheDir + '/mbid.json';
+  var cache = {};
+  try { if (fs.existsSync(cacheFile)) { cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) || {}; } } catch (e) {}
+  if (Object.prototype.hasOwnProperty.call(cache, key)) {
+    return cache[key];
+  }
+  var mbid = null;
+  try {
+    var url = 'https://musicbrainz.org/ws/2/artist/?query=' + encodeURIComponent('artist:"' + artist + '"') + '&fmt=json&limit=1';
+    var ua = 'PeppyScreensaver/' + peppyPluginVersion + ' ( https://github.com/foonerd/peppy_screensaver )';
+    var body = await fanartHttpsGetText(url, { 'User-Agent': ua, 'Accept': 'application/json' }, 8000);
+    var json = JSON.parse(body);
+    if (json && json.artists && json.artists.length && json.artists[0].id) {
+      var top = json.artists[0];
+      if (top.score === undefined || top.score >= 90) {
+        mbid = top.id;
+      }
+    }
+  } catch (e) {
+    galleryLog(self.logger, 'verbose', 'fanart MBID lookup failed for ' + artist + ': ' + e.message);
+    return null; // do not negative-cache transient failures
+  }
+  try { fs.ensureDirSync(FanartCacheDir); cache[key] = mbid; fs.writeFileSync(cacheFile, JSON.stringify(cache)); } catch (e) {}
+  return mbid;
+};
+
+peppyScreensaver.prototype.fanartFetchFanartTv = async function (mbid, apiKey) {
+  var url = 'https://webservice.fanart.tv/v3/music/' + encodeURIComponent(mbid) + '?api_key=' + encodeURIComponent(apiKey || FANART_TV_PROJECT_KEY);
+  var body = await fanartHttpsGetText(url, { 'Accept': 'application/json' }, 10000);
+  var json = JSON.parse(body);
+  var urls = [];
+  if (json && Array.isArray(json.artistbackground)) {
+    json.artistbackground.forEach(function (b) { if (b && b.url) { urls.push(b.url); } });
+  }
+  return urls;
+};
+
+peppyScreensaver.prototype.fanartFetchMetaVolumio = async function (artist) {
+  var variant = 'volumio';
+  try {
+    variant = execSync("cat /etc/os-release | grep ^VOLUMIO_VARIANT | tr -d 'VOLUMIO_VARIANT=\"'").toString().replace('\n', '').trim() || 'volumio';
+  } catch (e) {}
+  var url = 'https://meta.volumio.org/metas/v1/getDatas?mode=artistArt&artist=' + encodeURIComponent(artist.replace('&', 'and')) + '&variant=' + encodeURIComponent(variant);
+  var body = await fanartHttpsGetText(url, { 'Accept': 'application/json' }, 8000);
+  var json = JSON.parse(body);
+  if (json && json.success && json.data) {
+    if (typeof json.data === 'string') { return json.data; }
+    if (Array.isArray(json.data) && json.data.length) { return json.data[0]; }
+  }
+  return null;
+};
+
+// HTTP endpoint: artist fanart slideshow source list (Item 6). Returns an ordered list
+// of sectionimage paths (served via /albumart?sectionimage=...), populating an on-disk
+// cache. Cascade: personal artist folder -> fanart/ subfolder -> fanart.tv (MBID) ->
+// meta.volumio.org single. POST { endpoint: 'peppy_screensaver_artistfanart', data: { artist, uri } }
+peppyScreensaver.prototype.getArtistFanart = async function (data) {
+  var self = this;
+  var artist = (data && typeof data.artist === 'string') ? data.artist.trim() : '';
+  var uri = (data && typeof data.uri === 'string') ? data.uri.trim() : '';
+  if (!artist) {
+    return { success: false, error: 'no artist' };
+  }
+  // Master switch (Item 6): fanart only renders when globally enabled AND the skin
+  // declares fanart slots. When disabled, return an empty set so the renderer clears.
+  if (self.config.get('fanartEnabled') !== true) {
+    return { success: true, source: 'disabled', images: [], interval_ms: 0 };
+  }
+  var fanartIntervalMs = (parseInt(self.config.get('fanartInterval'), 10) || 0) * 1000;
+  var fanartTransition = self.config.get('fanartTransition') || 'none';
+  if (['none', 'fade', 'merge'].indexOf(fanartTransition) === -1) { fanartTransition = 'none'; }
+  var fanartTransitionMs = parseInt(self.config.get('fanartTransitionMs'), 10);
+  if (isNaN(fanartTransitionMs) || fanartTransitionMs < 50) { fanartTransitionMs = 600; }
+  var slug = fanartArtistSlug(artist);
+  if (!slug) {
+    return { success: false, error: 'invalid artist' };
+  }
+  var artistCacheDir = FanartCacheDir + '/' + slug;
+  var manifestPath = artistCacheDir + '/manifest.json';
+  try {
+    var cached = self.fanartReadManifest(manifestPath);
+    if (cached && cached.images && cached.images.length && (Date.now() - (cached.ts || 0)) < FANART_TTL_MS) {
+      var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
+      if (fs.existsSync(firstFile)) {
+        galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
+        return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
+      }
+    }
+    fs.ensureDirSync(artistCacheDir);
+
+    var source = null;
+    var picked = [];
+
+    // Tier 1: Volumio personal artist art folder (name-keyed)
+    if (artist.indexOf('/') === -1 && artist.indexOf('..') === -1) {
+      var localImgs = self.fanartListLocalImages(FanartPersonalArtDir + '/' + artist);
+      if (localImgs.length) {
+        source = 'personal';
+        picked = localImgs.map(function (p) { return { type: 'file', path: p }; });
+      }
+    }
+
+    // Tier 2: fanart/ subfolder in the artist's music directory
+    if (!picked.length && uri) {
+      var artistDir = self.fanartResolveArtistMusicDir(uri);
+      if (artistDir) {
+        var subImgs = self.fanartListLocalImages(path.join(artistDir, 'fanart'));
+        if (subImgs.length) {
+          source = 'local-fanart';
+          picked = subImgs.map(function (p) { return { type: 'file', path: p }; });
+        }
+      }
+    }
+
+    // Tier 3: fanart.tv full set (MBID via MusicBrainz). Key mode decides which
+    // api_key is used: 'project' = built-in key (testing/development only),
+    // 'personal' = the listener's own fanart.tv key (required; skipped if blank).
+    if (!picked.length) {
+      var keyMode = self.config.get('fanartKeyMode') || 'personal';
+      var apiKey = '';
+      if (keyMode === 'project') {
+        apiKey = FANART_TV_PROJECT_KEY;
+      } else {
+        try { apiKey = (self.config.get('fanart_personal_key') || '').trim(); } catch (e) {}
+      }
+      if (apiKey) {
+        var mbid = await self.fanartResolveMBID(artist);
+        if (mbid) {
+          var urls = await self.fanartFetchFanartTv(mbid, apiKey);
+          if (urls.length) {
+            source = 'fanart.tv';
+            picked = urls.map(function (u) { return { type: 'url', url: u }; });
+          }
+        }
+      } else {
+        galleryLog(self.logger, 'verbose', 'fanart.tv skipped: personal key mode with no key set');
+      }
+    }
+
+    // Tier 4: meta.volumio.org single image
+    if (!picked.length) {
+      var metaUrl = await self.fanartFetchMetaVolumio(artist);
+      if (metaUrl) {
+        source = 'meta.volumio';
+        picked = [{ type: 'url', url: metaUrl }];
+      }
+    }
+
+    if (!picked.length) {
+      self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: 'none', images: [] });
+      galleryLog(self.logger, 'basic', 'getArtistFanart: no fanart for "' + artist + '"');
+      return { success: false, error: 'no fanart' };
+    }
+
+    if (picked.length > FANART_MAX_IMAGES) {
+      picked = picked.slice(0, FANART_MAX_IMAGES);
+    }
+
+    // Clear previous cached images for this artist (keep manifest)
+    try {
+      fs.readdirSync(artistCacheDir).forEach(function (f) {
+        if (f !== 'manifest.json') { fs.removeSync(path.join(artistCacheDir, f)); }
+      });
+    } catch (e) {}
+
+    var images = [];
+    for (var i = 0; i < picked.length; i++) {
+      var item = picked[i];
+      var ext = '.jpg';
+      try {
+        if (item.type === 'file') {
+          ext = path.extname(item.path).toLowerCase() || '.jpg';
+        } else {
+          ext = path.extname(item.url.split('?')[0]).toLowerCase();
+          if (FANART_IMAGE_EXTS.indexOf(ext) === -1) { ext = '.jpg'; }
+        }
+        var destName = i + ext;
+        var destPath = path.join(artistCacheDir, destName);
+        if (item.type === 'file') {
+          fs.copySync(item.path, destPath);
+        } else {
+          await fanartDownloadFile(item.url, destPath, 15000);
+        }
+        images.push(FanartSectionPrefix + slug + '/' + destName);
+      } catch (e) {
+        galleryLog(self.logger, 'verbose', 'fanart image ' + i + ' failed: ' + e.message);
+      }
+    }
+
+    if (!images.length) {
+      self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: 'none', images: [] });
+      return { success: false, error: 'fetch failed' };
+    }
+
+    self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, images: images });
+    galleryLog(self.logger, 'basic', 'getArtistFanart "' + artist + '" -> ' + images.length + ' image(s) from ' + source);
+    return { success: true, source: source, images: images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
+  } catch (err) {
+    self.logger.error(id + 'getArtistFanart: ' + err.message);
+    return { success: false, error: err.message };
+  }
+};
+
+function escapeThemeGalleryHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildThemeGalleryActiveFrameOpen() {
+  return '<table cellpadding="2" cellspacing="0" bgcolor="' + THEME_GALLERY_ACTIVE_SHADOW + '">' +
+    '<tr><td><table cellpadding="2" cellspacing="0" bgcolor="' + THEME_GALLERY_ACTIVE_BORDER + '">' +
+    '<tr><td align="center">';
+}
+
+function buildThemeGalleryActiveFrameClose() {
+  return '</td></tr></table></td></tr></table>';
+}
+
+function escapeThemeGalleryJsString(text) {
+  return JSON.stringify(String(text));
+}
+
+peppyScreensaver.prototype.formatThemeShortLabel = function (folder) {
+  var upperc = /\b([^-])/g;
+  if (!folder || !folder.includes('_')) {
+    return folder || '';
+  }
+  var parts = folder.split('_');
+  if (parts.length >= 3) {
+    return parts[1].replace(upperc, function (c) { return c.toUpperCase(); }) + '-' + parts[2];
+  }
+  return parts[1].replace(upperc, function (c) { return c.toUpperCase(); });
+};
+
+peppyScreensaver.prototype.parseThemeResolution = function (folder) {
+  if (!folder || folder.indexOf('_') === -1) {
+    return '';
+  }
+  return folder.split('_')[0];
+};
+
+peppyScreensaver.prototype.isThemeGalleryAssetName = function (filename) {
+  if (!filename) {
+    return false;
+  }
+  var name = String(filename).trim();
+  return name.length > 0 && name.indexOf('/') === -1 && name.indexOf('..') === -1;
+};
+
+peppyScreensaver.prototype.resolveThemeGalleryAssetPath = function (themePath, filename) {
+  if (!this.isThemeGalleryAssetName(filename)) {
+    return null;
+  }
+  var candidatePath = themePath + '/' + String(filename).trim();
+  if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+    return candidatePath;
+  }
+  return null;
+};
+
+peppyScreensaver.prototype.loadThemeMetersTxtSections = function (themeFolder) {
+  if (!themeFolder || themeFolder.indexOf('/') !== -1 || themeFolder.indexOf('..') !== -1) {
+    return null;
+  }
+  var themePath = base_folder_P + themeFolder;
+  var metersFile = themePath + '/meters.txt';
+  if (!fs.existsSync(metersFile)) {
+    return null;
+  }
+  try {
+    var metersconfig = ini.parse(fs.readFileSync(metersFile, 'utf-8'));
+    var sections = Object.keys(metersconfig);
+    var result = [];
+    var i;
+    var sectionName;
+    var section;
+    for (i = 0; i < sections.length; i++) {
+      sectionName = sections[i];
+      section = metersconfig[sectionName];
+      if (!section) {
+        continue;
+      }
+      result.push({
+        section: sectionName,
+        data: section
+      });
+    }
+    return { themePath: themePath, sections: result };
+  } catch (e) {
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.resolveThemePreviewFromMetersSection = function (themePath, sectionData, sectionName, contextLabel) {
+  var self = this;
+  var i;
+  var spec;
+  var filename;
+  var candidatePath;
+
+  for (i = 0; i < THEME_PREVIEW_METER_KEYS.length; i++) {
+    spec = THEME_PREVIEW_METER_KEYS[i];
+    filename = sectionData[spec.key];
+    if (!filename) {
+      continue;
+    }
+    candidatePath = self.resolveThemeGalleryAssetPath(themePath, filename);
+    if (candidatePath) {
+      galleryLog(self.logger, 'trace', contextLabel + ' section [' + sectionName + '] hit ' + spec.source + ' -> ' + filename);
+      return {
+        path: candidatePath,
+        source: spec.source,
+        section: sectionName
+      };
+    }
+    galleryLog(self.logger, 'verbose', contextLabel + ' section [' + sectionName + '] missing file for ' + spec.source + ': ' + String(filename).trim());
+  }
+  return null;
+};
+
+peppyScreensaver.prototype.resolveThemePreviewFromMetersTxt = function (themeFolder, scope, sectionName, contextLabel) {
+  var self = this;
+  var parsed;
+  var themePath;
+  var i;
+  var entry;
+  var resolved;
+  var label = contextLabel || ('resolveThemePreviewFromMetersTxt scope=' + scope);
+
+  parsed = self.loadThemeMetersTxtSections(themeFolder);
+  if (!parsed) {
+    galleryLog(self.logger, 'verbose', label + ' no meters.txt for ' + themeFolder);
+    return null;
+  }
+  themePath = parsed.themePath;
+
+  if (scope === 'section') {
+    if (!sectionName) {
+      galleryLog(self.logger, 'verbose', label + ' section scope requires sectionName');
+      return null;
+    }
+    for (i = 0; i < parsed.sections.length; i++) {
+      entry = parsed.sections[i];
+      if (entry.section === sectionName) {
+        resolved = self.resolveThemePreviewFromMetersSection(themePath, entry.data, entry.section, label);
+        if (resolved) {
+          galleryLog(self.logger, 'basic', label + ' [' + themeFolder + '/' + sectionName + '] -> ' + resolved.source + ' (' + path.basename(resolved.path) + ')');
+        } else {
+          galleryLog(self.logger, 'verbose', label + ' [' + themeFolder + '/' + sectionName + '] no preview asset');
+        }
+        return resolved;
+      }
+    }
+    galleryLog(self.logger, 'verbose', label + ' section [' + sectionName + '] not found in ' + themeFolder);
+    return null;
+  }
+
+  // folder scope (tier 1 fallback): first valid across sections, key priority meter.preview -> screen.bgr -> bgr.filename
+  for (i = 0; i < THEME_PREVIEW_METER_KEYS.length; i++) {
+    var keySpec = THEME_PREVIEW_METER_KEYS[i];
+    var s;
+    var sectionEntry;
+    var value;
+    for (s = 0; s < parsed.sections.length; s++) {
+      sectionEntry = parsed.sections[s];
+      value = sectionEntry.data[keySpec.key];
+      if (!value) {
+        continue;
+      }
+      resolved = self.resolveThemeGalleryAssetPath(themePath, value);
+      if (resolved) {
+        galleryLog(self.logger, 'basic', label + ' [' + themeFolder + '] tier1 fallback -> ' + keySpec.source + ' [' + sectionEntry.section + '] (' + path.basename(resolved) + ')');
+        galleryLog(self.logger, 'trace', label + ' [' + themeFolder + '] ' + keySpec.source + ' [' + sectionEntry.section + '] = ' + String(value).trim());
+        return {
+          path: resolved,
+          source: keySpec.source,
+          section: sectionEntry.section
+        };
+      }
+      galleryLog(self.logger, 'verbose', label + ' [' + themeFolder + '] missing file for ' + keySpec.source + ' [' + sectionEntry.section + ']: ' + String(value).trim());
+    }
+  }
+
+  galleryLog(self.logger, 'verbose', label + ' [' + themeFolder + '] no meters.txt preview fallback');
+  return null;
+};
+
+peppyScreensaver.prototype.resolveThemeFolderPreview = function (themeFolder, contextLabel) {
+  var self = this;
+  var themePath = base_folder_P + themeFolder;
+  var i;
+  var candidate;
+  var fileName;
+  var metersResolved;
+  var label = contextLabel || 'resolveThemeFolderPreview';
+
+  if (!themeFolder || themeFolder.indexOf('/') !== -1 || themeFolder.indexOf('..') !== -1) {
+    return null;
+  }
+
+  for (i = 0; i < THEME_PREVIEW_FILES.length; i++) {
+    fileName = THEME_PREVIEW_FILES[i];
+    candidate = themePath + '/' + fileName;
+    if (fs.existsSync(candidate)) {
+      galleryLog(self.logger, 'basic', label + ' [' + themeFolder + '] -> folder ' + fileName);
+      return {
+        path: candidate,
+        source: 'folder:' + fileName,
+        section: null
+      };
+    }
+  }
+
+  metersResolved = self.resolveThemePreviewFromMetersTxt(themeFolder, 'folder', null, label);
+  return metersResolved;
+};
+
+peppyScreensaver.prototype.resolveMeterSectionPreview = function (themeFolder, sectionName, contextLabel) {
+  return this.resolveThemePreviewFromMetersTxt(themeFolder, 'section', sectionName, contextLabel || 'resolveMeterSectionPreview');
+};
+
+peppyScreensaver.prototype.findThemePreviewFile = function (themeFolder) {
+  var resolved = this.resolveThemeFolderPreview(themeFolder, 'findThemePreviewFile');
+  return resolved ? resolved.path : null;
+};
+
+peppyScreensaver.prototype.ensureThemeGalleryCacheEntry = function (themeFolder, previewPath, cacheKeySuffix) {
+  var self = this;
+  try {
+    if (!fs.existsSync(ThemeGalleryDir)) {
+      fs.mkdirSync(ThemeGalleryDir, { recursive: true });
+    }
+    var ext = path.extname(previewPath).toLowerCase() || '.png';
+    var cacheName = themeFolder + (cacheKeySuffix || '') + ext;
+    var cachePath = ThemeGalleryDir + '/' + cacheName;
+    var srcStat = fs.statSync(previewPath);
+    if (fs.existsSync(cachePath)) {
+      var dstStat = fs.statSync(cachePath);
+      if (dstStat.mtimeMs >= srcStat.mtimeMs) {
+        galleryLog(self.logger, 'trace', 'cache hit ' + cacheName + ' <- ' + previewPath);
+        return ThemeGallerySectionPrefix + cacheName;
+      }
+    }
+    fs.copySync(previewPath, cachePath);
+    galleryLog(self.logger, 'verbose', 'cached ' + cacheName + ' <- ' + previewPath);
+    return ThemeGallerySectionPrefix + cacheName;
+  } catch (e) {
+    galleryLog(self.logger, 'verbose', 'cache failed for ' + themeFolder + ': ' + e.message);
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.ensureThemeGallerySelectPage = function (themeFolder) {
+  try {
+    if (!themeFolder || themeFolder.indexOf('/') !== -1 || themeFolder.indexOf('..') !== -1) {
+      return null;
+    }
+    if (!fs.existsSync(ThemeGalleryDir)) {
+      fs.mkdirSync(ThemeGalleryDir, { recursive: true });
+    }
+    var cacheName = themeFolder + '.select.html';
+    var cachePath = ThemeGalleryDir + '/' + cacheName;
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title></title></head><body>' +
+      '<script>(function(){var f=' + escapeThemeGalleryJsString(themeFolder) + ';' +
+      'fetch("/api/v1/pluginEndpoint",{method:"POST",headers:{"Content-Type":"application/json"},' +
+      'body:JSON.stringify({endpoint:"peppy_screensaver_theme",data:{folder:f}})})' +
+      '.catch(function(){}).finally(function(){if(window.top===window.self){window.location.href="/#/plugin/user_interface-peppy_screensaver";}});})();</script>' +
+      '</body></html>';
+    fs.writeFileSync(cachePath, html, 'utf8');
+    return ThemeGallerySectionPrefix + cacheName;
+  } catch (e) {
+    return null;
+  }
+};
+
+peppyScreensaver.prototype.collectThemeGalleryEntries = function () {
+  var self = this;
+  var themes = [];
+  var files = fs.readdirSync(base_folder_P);
+
+  files.forEach(function (file) {
+    var folderPath = base_folder_P + file;
+    var stat = fs.statSync(folderPath);
+    if (!stat.isDirectory() || file.indexOf('_') === -1) {
+      return;
+    }
+    var resolved = self.resolveThemeFolderPreview(file, 'collectThemeGalleryEntries');
+    if (!resolved) {
+      return;
+    }
+    var previewPath = resolved.path;
+    var sectionImage = self.ensureThemeGalleryCacheEntry(file, previewPath);
+    if (!sectionImage) {
+      return;
+    }
+    var selectSectionImage = self.ensureThemeGallerySelectPage(file);
+    if (!selectSectionImage) {
+      return;
+    }
+    themes.push({
+      folder: file,
+      label: self.formatThemeShortLabel(file) + ' \u00b7 ' + self.parseThemeResolution(file),
+      shortLabel: self.formatThemeShortLabel(file),
+      resolution: self.parseThemeResolution(file),
+      sectionImage: sectionImage,
+      selectSectionImage: selectSectionImage,
+      previewSource: resolved.source,
+      previewSection: resolved.section
+    });
+  });
+
+  themes.sort(function (a, b) {
+    if (a.resolution !== b.resolution) {
+      return a.resolution.localeCompare(b.resolution, undefined, { numeric: true });
+    }
+    return a.shortLabel.localeCompare(b.shortLabel);
+  });
+
+  return themes;
+};
+
+peppyScreensaver.prototype.buildThemeGalleryHtml = function (themes, activeFolder) {
+  var self = this;
+  if (!themes.length) {
+    return '';
+  }
+
+  var activeLabel = escapeThemeGalleryHtml(self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_ACTIVE'));
+  var html = '<p>' + escapeThemeGalleryHtml(self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_SELECT_HINT')) + '</p>';
+  html += '<table align="center" width="100%" cellspacing="10" cellpadding="4">';
+  var colsPerRow = THEME_GALLERY_COLS;
+  var colWidth = Math.floor(100 / colsPerRow);
+  var currentResolution = null;
+  var firstResolution = true;
+  var rowThemes = [];
+
+  function flushRow(themesInRow, centered) {
+    var padLeft = 0;
+    var idx;
+    var theme;
+    var isActive;
+    var label;
+    var imgSrc;
+    var frameStart;
+    var frameEnd;
+
+    if (!themesInRow.length) {
+      return;
+    }
+    if (centered && themesInRow.length < colsPerRow) {
+      padLeft = Math.floor((colsPerRow - themesInRow.length) / 2);
+    }
+    html += '<tr>';
+    for (idx = 0; idx < padLeft; idx++) {
+      html += '<td width="' + colWidth + '%"></td>';
+    }
+    for (idx = 0; idx < themesInRow.length; idx++) {
+      theme = themesInRow[idx];
+      isActive = theme.folder === activeFolder;
+      label = escapeThemeGalleryHtml(theme.shortLabel);
+      imgSrc = '/albumart?sectionimage=' + theme.sectionImage;
+      frameStart = isActive ? buildThemeGalleryActiveFrameOpen() : '';
+      frameEnd = isActive ? buildThemeGalleryActiveFrameClose() : '';
+
+      html += '<td align="center" valign="top" width="' + colWidth + '%">';
+      html += frameStart;
+      html += '<img width="' + THEME_GALLERY_IMG_WIDTH + '" src="' + imgSrc + '" alt="' + label + '"/>';
+      html += '<br/>';
+      if (isActive) {
+        html += '<font color="' + THEME_GALLERY_ACTIVE_BORDER + '"><b>' + label + ' (' + activeLabel + ')</b></font>';
+      } else {
+        // target attribute is required: it makes AngularJS $location skip its
+        // same-origin link-rewriting handler, so the browser actually navigates
+        // to the select.html shim instead of routing inside the SPA.
+        html += '<a target="_self" href="/albumart?sectionimage=' + theme.selectSectionImage + '"><b>' + label + '</b></a>';
+      }
+      html += frameEnd;
+      html += '</td>';
+    }
+    for (idx = padLeft + themesInRow.length; idx < colsPerRow; idx++) {
+      html += '<td width="' + colWidth + '%"></td>';
+    }
+    html += '</tr>';
+  }
+
+  themes.forEach(function (theme) {
+    if (theme.resolution !== currentResolution) {
+      if (rowThemes.length) {
+        flushRow(rowThemes, true);
+        rowThemes = [];
+      }
+      if (!firstResolution) {
+        html += '<tr><td colspan="' + colsPerRow + '"><hr/></td></tr>';
+      }
+      firstResolution = false;
+      currentResolution = theme.resolution;
+      html += '<tr><td align="center" colspan="' + colsPerRow + '"><b>' +
+        escapeThemeGalleryHtml(currentResolution) + '</b></td></tr>';
+    }
+    rowThemes.push(theme);
+    if (rowThemes.length >= colsPerRow) {
+      flushRow(rowThemes, false);
+      rowThemes = [];
+    }
+  });
+
+  if (rowThemes.length) {
+    flushRow(rowThemes, true);
+  }
+
+  html += '</table>';
+  return html;
+};
+
+peppyScreensaver.prototype.buildThemeGalleryButtons = function () {
+  var self = this;
+  return [{
+    name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+    class: 'btn btn-link btn-sm',
+    emit: '',
+    payload: ''
+  }];
+};
+
+peppyScreensaver.prototype.applyActiveThemeFolder = function (folder) {
+  var self = this;
+
+  galleryLog(self.logger, 'basic', 'applyActiveThemeFolder called folder=' + folder);
+
+  if (!folder || folder.indexOf('/') !== -1 || folder.indexOf('..') !== -1 || folder.indexOf('_') === -1) {
+    galleryLog(self.logger, 'verbose', 'applyActiveThemeFolder rejected invalid folder');
+    return { changed: false, error: 'invalid' };
+  }
+
+  var folderPath = base_folder_P + folder;
+  if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+    return { changed: false, error: 'not_found' };
+  }
+
+  if (!fs.existsSync(PeppyConf)) {
+    return { changed: false, error: 'no_config' };
+  }
+
+  if (!spectrum_config && fs.existsSync(SpectrumConf)) {
+    spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+  }
+
+  if (peppy_config.current[meterFolderStr] === folder) {
+    galleryLog(self.logger, 'basic', 'applyActiveThemeFolder unchanged (already active)');
+    return { changed: false };
+  }
+
+  var partFile = folder.split('_');
+  var upperc = /\b([^-])/g;
+  var str_empty = fs.existsSync(folderPath + '/meters.txt') ? '' : ' (empty)';
+  var folderTitle = (partFile[1]).replace(upperc, function (c) { return c.toUpperCase(); }) + '-' + partFile[2] + ' ' + partFile[0] + str_empty;
+
+  peppy_config.current[meterFolderStr] = folder;
+  if (spectrum_config) {
+    spectrum_config.current[SpectrumFolderStr] = folder;
+  }
+  self.config.set('activeFolder', folder);
+  self.config.set('activeFolder_title', folderTitle);
+  peppy_config.current.meter = 'random';
+  self.config.set('randomSelection', '');
+  self.checkMetersFile();
+
+  var dimensions = { width: '', height: '' };
+  try {
+    var files = fs.readdirSync(folderPath);
+    files.forEach(function (file) {
+      if (file.indexOf('-ext.') >= 0) {
+        dimensions = sizeOf(folderPath + '/' + file);
+      }
+    });
+  } catch (e) {
+    self.logger.warn(id + 'applyActiveThemeFolder: could not read dimensions: ' + e.message);
+  }
+  peppy_config.current['screen.width'] = dimensions.width;
+  peppy_config.current['screen.height'] = dimensions.height;
+
+  fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, { whitespace: true }));
+  if (spectrum_config) {
+    fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, { whitespace: true }));
+  }
+  if (fs.existsSync(runFlag)) {
+    fs.removeSync(runFlag);
+  }
+
+  uiNeedsUpdate = true;
+  self.updateUIConfig();
+
+  galleryLog(self.logger, 'basic', 'applyActiveThemeFolder applied ' + folder + ' -> ' + folderTitle);
+  return { changed: true, label: folderTitle };
+};
+
+peppyScreensaver.prototype.selectThemeFromGallery = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var folder = null;
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+
+  if (typeof data === 'string') {
+    folder = data;
+  } else if (data && data.folder) {
+    folder = data.folder;
+  }
+
+  galleryLog(self.logger, 'basic', 'selectThemeFromGallery REST call folder=' + folder);
+
+  if (!folder) {
+    self.logger.warn(id + 'selectThemeFromGallery: missing folder in REST payload');
+    defer.resolve();
+    return defer.promise;
+  }
+
+  try {
+    if (fs.existsSync(PeppyConf)) {
+      peppy_config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
+      base_folder_P = peppy_config.current['base.folder'] + '/';
+      if (base_folder_P === '/') {
+        base_folder_P = PeppyPath + '/';
+      }
+    }
+    if (fs.existsSync(SpectrumConf)) {
+      spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+    }
+  } catch (e) {
+    self.logger.error(id + 'selectThemeFromGallery: failed to reload config: ' + e.message);
+    defer.resolve();
+    return defer.promise;
+  }
+
+  var result = self.applyActiveThemeFolder(folder);
+  galleryLog(self.logger, 'basic', 'selectThemeFromGallery result changed=' + result.changed + (result.error ? ' error=' + result.error : ''));
+  if (result.error === 'no_config') {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG'));
+  } else if (result.error) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_INVALID'));
+  } else if (!result.changed) {
+    self.commandRouter.pushToastMessage('info', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_CHANGES'));
+  } else {
+    self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('COMMON.SETTINGS_SAVED_SUCCESSFULLY'));
+  }
+
+  if (!result.error) {
+    self.commandRouter.closeModals();
+  }
+
+  defer.resolve();
+  return defer.promise;
+};
+
+// Unified save for the "Themes & Artwork" section. Persists the artist-fanart
+// settings (enable / personal key / timed interval), and only triggers theme
+// removal when a theme is explicitly selected (the dropdown defaults to an empty
+// placeholder, so a normal save never deletes anything). Removal still goes
+// through the confirm modal in removeThemeFolder.
+peppyScreensaver.prototype.saveThemesArtwork = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+
+  try {
+    var enabled = (data && (data.fanartEnabled === true || data.fanartEnabled === 'true'));
+    var keyMode = (data && data.fanartKeyMode && typeof data.fanartKeyMode === 'object')
+      ? data.fanartKeyMode.value
+      : (data && data.fanartKeyMode);
+    if (keyMode !== 'project') { keyMode = 'personal'; }
+    var key = (data && typeof data.fanart_personal_key === 'string') ? data.fanart_personal_key.trim() : '';
+    var interval = parseInt(data && data.fanartInterval, 10);
+    if (isNaN(interval) || interval < 0) { interval = 0; }
+    if (interval > 3600) { interval = 3600; }
+    var transition = (data && data.fanartTransition && typeof data.fanartTransition === 'object')
+      ? data.fanartTransition.value
+      : (data && data.fanartTransition);
+    if (['none', 'fade', 'merge'].indexOf(transition) === -1) { transition = 'none'; }
+    var transitionMs = parseInt(data && data.fanartTransitionMs, 10);
+    if (isNaN(transitionMs) || transitionMs < 50) { transitionMs = 600; }
+    if (transitionMs > 3000) { transitionMs = 3000; }
+
+    self.config.set('fanartEnabled', enabled);
+    self.config.set('fanartKeyMode', keyMode);
+    self.config.set('fanart_personal_key', key);
+    self.config.set('fanartInterval', interval);
+    self.config.set('fanartTransition', transition);
+    self.config.set('fanartTransitionMs', transitionMs);
+
+    // --- Theme + font settings that live in config.txt / config.json (moved here
+    //     from the old global section): keep-themes flag, active theme folder
+    //     (with spectrum mirror + screen size), and the system-fonts toggle. ---
+    var doNotDelete = data && data.doNotDeleteThemes === true;
+    if (self.config.get('doNotDeleteThemes') !== doNotDelete) {
+      self.config.set('doNotDeleteThemes', doNotDelete);
+    }
+    try {
+      if (doNotDelete) {
+        if (!fs.existsSync(DATA_DIR)) { fs.mkdirSync(DATA_DIR, { recursive: true }); }
+        fs.writeFileSync(DATA_DIR + '/.preserve', '', 'utf8');
+      } else {
+        if (fs.existsSync(DATA_DIR + '/.preserve')) { fs.unlinkSync(DATA_DIR + '/.preserve'); }
+      }
+    } catch (ePreserve) {
+      self.logger.error(id + 'saveThemesArtwork: failed to sync preserve-themes flag: ' + ePreserve.message);
+    }
+
+    var folderChanged = false;
+    if (fs.existsSync(PeppyConf)) {
+      var peppyChanged = false;
+      if (!spectrum_config && fs.existsSync(SpectrumConf)) {
+        spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+      }
+
+      // active theme folder (+ spectrum mirror, meter reset, screen size)
+      if (data && data.activeFolder && peppy_config.current[meterFolderStr] !== data.activeFolder.value) {
+        peppy_config.current[meterFolderStr] = data.activeFolder.value;
+        if (spectrum_config) { spectrum_config.current[SpectrumFolderStr] = data.activeFolder.value; }
+        self.config.set('activeFolder', data.activeFolder.value);
+        self.config.set('activeFolder_title', data.activeFolder.label);
+        peppy_config.current.meter = 'random';
+        self.config.set('randomSelection', '');
+        self.checkMetersFile();
+
+        // screen width/height from the active folder's -ext image
+        var dimensions = { 'width': '', 'height': '' };
+        try {
+          var files = fs.readdirSync(base_folder_P + data.activeFolder.value);
+          files.forEach(function (file) {
+            if (file.indexOf('-ext.') >= 0) {
+              dimensions = sizeOf(base_folder_P + data.activeFolder.value + '/' + file);
+              files.length = 0;
+            }
+          });
+        } catch (eDim) {
+          self.logger.error(id + 'saveThemesArtwork: screen size detect failed: ' + eDim.message);
+        }
+        peppy_config.current['screen.width'] = dimensions.width;
+        peppy_config.current['screen.height'] = dimensions.height;
+
+        peppyChanged = true;
+        folderChanged = true;
+        if (spectrum_config) {
+          fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, { whitespace: true }));
+        }
+      }
+
+      // use system fonts (SDL2 only, matching the prior global-section behaviour)
+      if (use_SDL2) {
+        var useSystemFonts = (data && data.useSystemFonts) ? 'True' : 'False';
+        if (peppy_config.current['use.system.fonts'] != useSystemFonts) {
+          peppy_config.current['use.system.fonts'] = useSystemFonts;
+          peppyChanged = true;
+        }
+      }
+
+      if (peppyChanged) {
+        fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, { whitespace: true }));
+      }
+    }
+
+    // Bump the config version (so remote clients pick up the change) and remove the
+    // run flag so the running screensaver reloads and applies the new artwork
+    // settings immediately, consistent with the other settings sections.
+    try { self.updateConfigVersion(); } catch (e) {}
+    if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
+    // A folder switch resets the active meter to random / refreshes options, so the
+    // settings page must be refreshed to reflect the new state.
+    if (folderChanged) { try { self.updateUIConfig(); } catch (eUi) {} }
+
+    self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEMES_ARTWORK_SAVED'));
+  } catch (e) {
+    self.logger.error(id + 'saveThemesArtwork: ' + e.message);
+  }
+
+  // Only fall through to removal when a real theme folder was picked.
+  var folder = (data && data.themeToRemove && typeof data.themeToRemove === 'object')
+    ? data.themeToRemove.value
+    : (data && data.themeToRemove);
+  if (self.isValidThemeFolderName(folder)) {
+    self.removeThemeFolder(data);
+  }
+
+  defer.resolve();
+  return defer.promise;
+};
+
+// Theme removal (Item 2). onSave from the Theme gallery section shows a confirm
+// modal; the modal's confirm button calls removeThemeFolderConfirmed. Deletion is
+// not persisted across plugin updates (built-ins return on reinstall, by design).
+peppyScreensaver.prototype.removeThemeFolder = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  var folder = (data && data.themeToRemove && typeof data.themeToRemove === 'object')
+    ? data.themeToRemove.value
+    : (data && data.themeToRemove);
+
+  if (!self.isValidThemeFolderName(folder)) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  var title = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_CONFIRM_TITLE');
+  var msg = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_CONFIRM_MSG') + ' ' + folder;
+  self.commandRouter.broadcastMessage('openModal', {
+    title: title,
+    message: msg,
+    size: 'lg',
+    buttons: [
+      {
+        name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+        class: 'btn btn-default',
+        emit: 'closeModals',
+        payload: ''
+      },
+      {
+        name: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_BTN'),
+        class: 'btn btn-warning',
+        emit: 'callMethod',
+        payload: {
+          endpoint: 'user_interface/peppy_screensaver',
+          method: 'removeThemeFolderConfirmed',
+          data: { folder: folder }
+        }
+      }
+    ]
+  });
+
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.isValidThemeFolderName = function (folder) {
+  return !!folder && typeof folder === 'string' &&
+    folder.indexOf('/') === -1 && folder.indexOf('..') === -1 && folder.indexOf('_') !== -1;
+};
+
+// Safely remove base+folder only when it resolves under the expected templates root.
+peppyScreensaver.prototype.removeThemeTreeFolder = function (baseDir, folder) {
+  var self = this;
+  if (!baseDir) {
+    return false;
+  }
+  var root = path.resolve(baseDir);
+  var target = path.resolve(path.join(root, folder));
+  if (target.indexOf(root + path.sep) !== 0) {
+    self.logger.warn(id + 'removeThemeTreeFolder: refusing path outside root: ' + target);
+    return false;
+  }
+  if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
+    fs.removeSync(target);
+    return true;
+  }
+  return false;
+};
+
+peppyScreensaver.prototype.removeThemeFolderConfirmed = function (data) {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  var folder = data && data.folder;
+
+  self.commandRouter.closeModals();
+
+  if (!self.isValidThemeFolderName(folder)) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  // Reload configs so base paths and active folder are current
+  try {
+    if (fs.existsSync(PeppyConf)) {
+      peppy_config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
+      base_folder_P = peppy_config.current['base.folder'] + '/';
+      if (base_folder_P === '/') {
+        base_folder_P = PeppyPath + '/';
+      }
+    }
+    if (fs.existsSync(SpectrumConf)) {
+      spectrum_config = ini.parse(fs.readFileSync(SpectrumConf, 'utf-8'));
+      base_folder_S = spectrum_config.current['base.folder'] + '/';
+      if (base_folder_S === '/') {
+        base_folder_S = SpectrumPath + '/';
+      }
+    }
+  } catch (e) {
+    self.logger.error(id + 'removeThemeFolderConfirmed: failed to reload config: ' + e.message);
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  if (!fs.existsSync(base_folder_P + folder)) {
+    self.commandRouter.pushToastMessage('error', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_INVALID'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  // Enumerate remaining meter theme folders to guard the last-skin case
+  var allFolders = [];
+  try {
+    fs.readdirSync(base_folder_P).forEach(function (f) {
+      if (f.indexOf('_') !== -1 && fs.statSync(base_folder_P + f).isDirectory()) {
+        allFolders.push(f);
+      }
+    });
+  } catch (e) {
+    self.logger.error(id + 'removeThemeFolderConfirmed: enumerate failed: ' + e.message);
+  }
+  var remaining = allFolders.filter(function (f) { return f !== folder; });
+  if (remaining.length === 0) {
+    self.commandRouter.pushToastMessage('warning', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_LAST'));
+    defer.resolve();
+    return defer.promise;
+  }
+
+  // If removing the active theme, switch to another one first so configs stay valid
+  var wasActive = (peppy_config.current[meterFolderStr] === folder);
+  var switchedTo = null;
+  if (wasActive) {
+    switchedTo = remaining[0];
+    self.applyActiveThemeFolder(switchedTo);
+  }
+
+  // Delete from both trees (meters + spectrum); spectrum twin is optional
+  self.removeThemeTreeFolder(base_folder_P, folder);
+  self.removeThemeTreeFolder(base_folder_S, folder);
+
+  // Drop the cached gallery preview for the removed folder, if present
+  try {
+    if (fs.existsSync(ThemeGalleryDir)) {
+      fs.readdirSync(ThemeGalleryDir).forEach(function (f) {
+        if (f === folder + '.png' || f === folder + '.jpg' || f === folder + '.jpeg' || f === folder + '.select.html') {
+          fs.removeSync(ThemeGalleryDir + '/' + f);
+        }
+      });
+    }
+  } catch (e) {
+    galleryLog(self.logger, 'verbose', 'removeThemeFolderConfirmed: cache cleanup failed: ' + e.message);
+  }
+
+  galleryLog(self.logger, 'basic', 'removeThemeFolderConfirmed removed ' + folder + (wasActive ? ' (was active -> ' + switchedTo + ')' : ''));
+
+  if (wasActive) {
+    self.commandRouter.pushToastMessage('success', pluginName,
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_ACTIVE_RESET') + ' ' + switchedTo);
+  } else {
+    self.commandRouter.pushToastMessage('success', pluginName,
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_REMOVE_DONE') + ' ' + folder);
+  }
+
+  uiNeedsUpdate = true;
+  self.updateUIConfig();
+
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.showThemeGallery = function () {
+  var self = this;
+  var defer = libQ.defer();
+
+  if (!fs.existsSync(PeppyConf)) {
+    self.commandRouter.pushToastMessage(
+      'error',
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'),
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.NO_PEPPYCONFIG')
+    );
+    defer.resolve();
+    return defer.promise;
+  }
+
+  try {
+    peppy_config = ini.parse(fs.readFileSync(PeppyConf, 'utf-8'));
+    base_folder_P = peppy_config.current['base.folder'] + '/';
+    if (base_folder_P === '/') {
+      base_folder_P = PeppyPath + '/';
+    }
+  } catch (e) {
+    self.logger.error(id + 'showThemeGallery: failed to reload config: ' + e.message);
+    defer.resolve();
+    return defer.promise;
+  }
+
+  var activeFolder = peppy_config.current[meterFolderStr];
+  galleryLog(self.logger, 'basic', 'showThemeGallery called, activeFolder=' + activeFolder + ', base=' + base_folder_P);
+  var themes = self.collectThemeGalleryEntries();
+  galleryLog(self.logger, 'basic', 'showThemeGallery collected ' + themes.length + ' theme(s)');
+  themes.forEach(function (theme) {
+    galleryLog(self.logger, 'trace', '  theme ' + theme.folder + ' preview=' + theme.previewSource + (theme.previewSection ? ' [' + theme.previewSection + ']' : ''));
+  });
+  var html = self.buildThemeGalleryHtml(themes, activeFolder);
+  if (!html) {
+    galleryLog(self.logger, 'basic', 'showThemeGallery: no themes with preview assets');
+    self.commandRouter.pushToastMessage(
+      'info',
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'),
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_NONE')
+    );
+    defer.resolve();
+    return defer.promise;
+  }
+
+  self.commandRouter.broadcastMessage('openModal', {
+    title: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEME_GALLERY_TITLE'),
+    message: html,
+    size: 'lg',
+    buttons: self.buildThemeGalleryButtons()
+  });
+
+  defer.resolve();
+  return defer.promise;
+};
+
 // global functions
 //-------------------------------------------------------------
-peppyScreensaver.prototype.minmax = function (item, value, attrib) {
+// Clamp `value` to [attrib[0], attrib[1]] (placeholder attrib[2] on invalid input).
+// isFloat=true preserves fractional values (e.g. transition.duration, rotation.speed);
+// otherwise the value is coerced to an integer. Note: parseInt truncates floats, so
+// float fields MUST pass isFloat=true or values like 0.5 silently become 0.
+peppyScreensaver.prototype.minmax = function (item, value, attrib, isFloat) {
   var self = this;
-  if (Number.isNaN(parseInt(value, 10)) || !isFinite(value)) {
+  var num = isFloat ? parseFloat(value) : parseInt(value, 10);
+  if (Number.isNaN(num) || !isFinite(value)) {
       uiNeedsUpdate = true;
       return attrib[2];
   }
-    if (value < attrib[0]) {
+    if (num < attrib[0]) {
         setTimeout(function () {
             self.commandRouter.pushToastMessage("info", self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.' + item.toUpperCase()) + ': ' + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.INFO_MIN'));
         }, 700);        
         uiNeedsUpdate = true;
         return attrib[0];
     }
-    if (value > attrib[1]) {
+    if (num > attrib[1]) {
         setTimeout(function () {
             self.commandRouter.pushToastMessage("info", self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME'), self.commandRouter.getI18nString('PEPPY_SCREENSAVER.' + item.toUpperCase()) + ': ' + self.commandRouter.getI18nString('PEPPY_SCREENSAVER.INFO_MAX'));
         }, 700); 
         uiNeedsUpdate = true;
         return attrib[1];
     }
-    return parseInt(value, 10);
+    return num;
 };
 
 peppyScreensaver.prototype.updateUIConfig = function () {
@@ -3319,8 +4866,8 @@ peppyScreensaver.prototype.deleteSettingsBackup = function (data) {
     
     try {
         var backupName = '';
-        if (data && data.selectedBackup) {
-            backupName = (typeof data.selectedBackup === 'object') ? data.selectedBackup.value : String(data.selectedBackup);
+        if (data && data.selectedBackupDelete) {
+            backupName = (typeof data.selectedBackupDelete === 'object') ? data.selectedBackupDelete.value : String(data.selectedBackupDelete);
         }
         backupName = (backupName || '').trim();
         

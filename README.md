@@ -56,6 +56,9 @@ After installation, enable and configure the plugin:
 - Cassette deck skins with rotating reel animation
 - Track info overlay with scrolling text
 - Optional ticker (single continuously looping line: artist · title · album) per theme in meters.txt
+- Theme gallery: browse preview thumbnails and remove installed themes
+- Optional decorative image from the track folder (back/logo art)
+- Artist fanart slideshow (personal art / local fanart / fanart.tv / Volumio, per-track or timed)
 - Display persistence during pause/track changes (eliminates flicker)
 - Random meter rotation
 - Touch to exit
@@ -114,6 +117,23 @@ After editing a file via SMB, that file becomes owned by `nobody:nogroup`. Until
 4. SSH/SFTP access is now fully restored for all template files
 
 When disabled, template folders revert to standard permissions (`755` directories, `644` files) — writable only by the `volumio` user via SSH/SFTP.
+
+### Themes & Artwork
+
+Browse and manage meter themes, and configure the artist fanart slideshow. A single **Apply** button saves the fanart settings and removes a theme only when one is explicitly selected (the remove dropdown defaults to *— none —*).
+
+| Setting | Description |
+|---------|-------------|
+| Browse themes | Opens a gallery of preview images for installed themes; click a theme name to apply it |
+| Theme to remove | Delete an installed theme from both the meter and spectrum templates (with confirmation). Built-in themes return on plugin update/reinstall |
+| Artist fanart slideshow | Master switch for the artist fanart slideshow (default Off) |
+| fanart.tv key | Personal (default) uses your own key as the api_key; Project uses the built-in key (testing/development only) |
+| Personal fanart.tv key | Your own fanart.tv API key; required when key mode is Personal (blank skips the fanart.tv tier) |
+| Fanart change interval | Seconds between automatic fanart changes; `0` = change only on track change |
+| Fanart transition | Slideshow transition: None / Fade in-out / Merge (crossfade), background-area fanart only |
+| Transition duration | Fanart transition length in ms (50–3000, default 600) |
+
+The fanart slideshow appears only when this master switch is **on** *and* the active theme declares a fanart area (`fanart.pos` / `fanart.dimension` in `meters.txt`). Images are resolved from a cascade: your personal artist-art folder (`/data/albumart/personal/artist/<Artist>/`) → an `<Artist>/fanart/` folder in your music library/NAS (at the artist level, next to the album folders) → fanart.tv (via MusicBrainz) → Volumio's artist art proxy. Your own `<Artist>/fanart/` images take priority over fanart.tv. See the [wiki: Plugin Settings](https://github.com/foonerd/peppy_screensaver/wiki/Plugin-Settings#themes--artwork) and [meters.txt reference](https://github.com/foonerd/peppy_screensaver/wiki/meters.txt-Reference#artist-fanart-slideshow-artist-photos--backgrounds).
 
 ### VU-Meter Settings
 
@@ -750,6 +770,25 @@ peppy_screensaver: ALSA: config written: /data/plugins/.../asound/Peppyalsa.post
 
 **Trace level** adds the full generated config content (can be large).
 
+#### Theme gallery logging
+
+When **Browse themes** is opened or a theme is selected from the gallery, preview resolution is logged to the Volumio log (same `debug.level` setting as ALSA logging above). Search for `peppy_screensaver: GALLERY:`.
+
+| Level | What is logged |
+|-------|----------------|
+| **Basic** | Gallery open/close summary, resolved preview source per theme (`folder:preview.png`, `meter.preview`, etc.), theme selection REST calls |
+| **Verbose** | Skipped candidates, missing files, cache copy operations |
+| **Trace** | Per-section meters.txt key scans, cache hits |
+
+**Example at Basic level:**
+```
+peppy_screensaver: GALLERY: showThemeGallery called, activeFolder=1280x720_MySkin, base=/data/.../templates/
+peppy_screensaver: GALLERY: collectThemeGalleryEntries [1280x720_MySkin] -> folder preview.png
+peppy_screensaver: GALLERY: showThemeGallery collected 12 theme(s)
+peppy_screensaver: GALLERY: selectThemeFromGallery REST call folder=800x480_OtherSkin
+peppy_screensaver: GALLERY: applyActiveThemeFolder applied 800x480_OtherSkin -> OtherSkin-800x480
+```
+
 ### Configuration Diagnostic
 
 To dump the current meter configuration (useful for diagnosing missing backgrounds, wrong paths, etc.):
@@ -762,6 +801,7 @@ python3 diagnose_config.py
 This shows:
 - Current meter name and settings
 - Background image keys (screen.bgr, bgr.filename, fgr.filename)
+- Theme gallery preview keys (`meter.preview`, folder `preview.png`, fallback chain)
 - Meter folder paths
 - Available image files
 

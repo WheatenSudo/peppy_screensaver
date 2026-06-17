@@ -70,5 +70,29 @@
   "remoteSpectrumPort": {
     "value": 5581,
     "type": "number"
+  },
+  "fanartEnabled": {
+    "value": false,
+    "type": "boolean"
+  },
+  "fanartKeyMode": {
+    "value": "personal",
+    "type": "string"
+  },
+  "fanart_personal_key": {
+    "value": "",
+    "type": "string"
+  },
+  "fanartInterval": {
+    "value": 0,
+    "type": "number"
+  },
+  "fanartTransition": {
+    "value": "none",
+    "type": "string"
+  },
+  "fanartTransitionMs": {
+    "value": 600,
+    "type": "number"
   }
 }

@@ -137,6 +137,56 @@ if SCREEN_INFO in cfg:
     else:
         print(f"  Path exists: NO")
 
+# Theme gallery preview keys (metadata only — not loaded at runtime draw)
+print("\n" + "=" * 70)
+print("THEME GALLERY PREVIEW KEYS (meters.txt)")
+print("=" * 70)
+print("  meter.preview is gallery metadata only; not used by PeppyMeter draw handlers.")
+
+if SCREEN_INFO in cfg:
+    meter_folder = cfg[SCREEN_INFO].get(METER_FOLDER, "not set")
+    full_path = os.path.join(str(base_path), str(meter_folder))
+else:
+    full_path = None
+
+PREVIEW_FOLDER_FILES = ('preview.png', 'preview.jpg', 'preview.jpeg', 'art.png', 'art.jpg')
+PREVIEW_METER_KEYS = ('meter.preview', 'screen.bgr', 'bgr.filename')
+
+if full_path and os.path.isdir(full_path):
+    folder_hits = [f for f in PREVIEW_FOLDER_FILES if os.path.isfile(os.path.join(full_path, f))]
+    if folder_hits:
+        print(f"  Folder preview (tier 1, wins over meters.txt): {', '.join(folder_hits)}")
+    else:
+        print("  Folder preview: (none — tier 1 uses meters.txt fallback chain)")
+
+    meters_txt = os.path.join(full_path, 'meters.txt')
+    if os.path.isfile(meters_txt):
+        import configparser
+        cp = configparser.ConfigParser()
+        cp.optionxform = str
+        cp.read(meters_txt)
+        for section in cp.sections():
+            print(f"\n  [{section}]")
+            section_has = False
+            for key in PREVIEW_METER_KEYS:
+                try:
+                    value = cp.get(section, key).strip()
+                except configparser.NoOptionError:
+                    continue
+                if not value:
+                    continue
+                section_has = True
+                asset_path = os.path.join(full_path, value)
+                exists = os.path.isfile(asset_path)
+                status = "OK" if exists else "MISSING"
+                print(f"    {key} = {value!r} [{status}]")
+            if not section_has:
+                print("    (no meter.preview / screen.bgr / bgr.filename)")
+    else:
+        print("  meters.txt: not found")
+else:
+    print("  (meter folder path unavailable)")
+
 print("\n" + "=" * 70)
 print("DIAGNOSTIC COMPLETE")
 print("=" * 70)
