@@ -9,8 +9,10 @@ from /albumart?sectionimage=<path>, so this works identically for the local
 screensaver and remote clients.
 
 Caching: the image set is fetched once per artist change; decoded/scaled surfaces
-are cached, never rebuilt per frame. A module-level index store keeps the current
-slideshow position across handler recreation (e.g. random meter skin changes).
+are cached, never rebuilt per frame. A module-level session store (image index and
+interval clock) keeps slideshow progress across handler recreation (e.g. random
+meter skin changes) using time.monotonic() so fanart interval and random meter
+interval are independent.
 Order mode (sequential / random) and interval/transition come from the plugin UI
 via the peppy_screensaver_artistfanart endpoint, not from meters.txt.
 """
@@ -18,6 +20,7 @@ via the peppy_screensaver_artistfanart endpoint, not from meters.txt.
 import io
 import random
 import sys
+import time
 import json
 import urllib.request
 import urllib.parse
@@ -63,9 +66,9 @@ def _decode_surface_bounded(img_bytes, box, want_alpha=False):
     return pg.image.load(io.BytesIO(img_bytes))
 
 
-# Slideshow position keyed by artist + image list; survives handler recreation
+# Slideshow session keyed by artist + image list; survives handler recreation
 # when random meter mode switches skins (same Python process).
-_PERSISTENT_INDEX = {}
+_PERSISTENT_STATE = {}
 _PERSISTENT_MAX = 20
 
 
@@ -75,29 +78,32 @@ def _persist_key(artist_norm, image_refs):
     return artist_norm + "\0" + "\0".join(image_refs)
 
 
-def _persist_get(artist_norm, image_refs):
+def _persist_get_state(artist_norm, image_refs):
     key = _persist_key(artist_norm, image_refs)
     if key is None:
         return None
-    return _PERSISTENT_INDEX.get(key)
+    return _PERSISTENT_STATE.get(key)
 
 
-def _persist_set(artist_norm, image_refs, index):
+def _persist_write(artist_norm, image_refs, index, last_advance_mono):
     key = _persist_key(artist_norm, image_refs)
     if key is None:
         return
-    _PERSISTENT_INDEX[key] = int(index)
-    while len(_PERSISTENT_INDEX) > _PERSISTENT_MAX:
-        _PERSISTENT_INDEX.pop(next(iter(_PERSISTENT_INDEX)))
+    _PERSISTENT_STATE[key] = {
+        "index": int(index),
+        "last_advance_mono": float(last_advance_mono),
+    }
+    while len(_PERSISTENT_STATE) > _PERSISTENT_MAX:
+        _PERSISTENT_STATE.pop(next(iter(_PERSISTENT_STATE)))
 
 
 def _resolve_start_index(artist_norm, image_refs, order_mode):
     n = len(image_refs)
     if n <= 0:
         return 0
-    stored = _persist_get(artist_norm, image_refs)
-    if stored is not None:
-        return max(0, min(stored, n - 1))
+    state = _persist_get_state(artist_norm, image_refs)
+    if state is not None:
+        return max(0, min(state.get("index", 0), n - 1))
     if order_mode == "random" and n > 1:
         return random.randrange(n)
     return 0
@@ -134,7 +140,7 @@ class FanartSlideshowRenderer:
         self._needs_redraw = True
         self._need_first_blit = False
         self._interval_ms = 0       # timed advance (0 = per-track only); from the endpoint
-        self._last_advance = 0      # pg ticks of the last image advance
+        self._last_advance_mono = time.monotonic()
         self._order_mode = "sequential"  # 'sequential' | 'random'; from the endpoint
 
         # Transition state (background z-order only; handlers gate the per-frame redraw).
@@ -177,6 +183,12 @@ class FanartSlideshowRenderer:
             if a and self.pos and self.dim:
                 self._image_refs = self._fetch_list(artist, uri)
                 if self._image_refs:
+                    state = _persist_get_state(a, self._image_refs)
+                    if state is not None:
+                        self._last_advance_mono = state.get(
+                            "last_advance_mono", time.monotonic())
+                    else:
+                        self._last_advance_mono = time.monotonic()
                     # First image of a new artist: fade/merge in from the background
                     if self._trans_mode in ("fade", "merge"):
                         self._prev_scaled = None
@@ -184,7 +196,7 @@ class FanartSlideshowRenderer:
                         self._trans_active = True
                         self._trans_start = pg.time.get_ticks()
                     self._apply_start_index(a)
-            self._last_advance = pg.time.get_ticks()
+                    self._catch_up_interval()
             return True
 
         changed = False
@@ -198,8 +210,7 @@ class FanartSlideshowRenderer:
 
         # Timed interval advance (independent of track changes)
         if self._interval_ms > 0 and len(self._image_refs) > 1:
-            now = pg.time.get_ticks()
-            if now - self._last_advance >= self._interval_ms:
+            if self._interval_elapsed():
                 if self._refresh_image_list_if_changed(artist, uri):
                     changed = True
                 elif len(self._image_refs) > 1:
@@ -223,6 +234,7 @@ class FanartSlideshowRenderer:
             self._index = 0
             self._needs_redraw = True
             return True
+        self._last_advance_mono = time.monotonic()
         if self._trans_mode in ("fade", "merge") and self._scaled is not None:
             self._prev_scaled = self._scaled
             self._prev_blit_pos = self._blit_pos
@@ -241,6 +253,16 @@ class FanartSlideshowRenderer:
         start = _resolve_start_index(artist_norm, self._image_refs, self._order_mode)
         self._load_index(start)
 
+    def _interval_elapsed(self):
+        if self._interval_ms <= 0:
+            return False
+        return (time.monotonic() - self._last_advance_mono) * 1000.0 >= self._interval_ms
+
+    def _catch_up_interval(self):
+        """Advance once if the timed interval fired while the handler was torn down."""
+        if self._interval_ms > 0 and len(self._image_refs) > 1 and self._interval_elapsed():
+            self._advance()
+
     def _advance(self):
         # Begin a transition from the currently displayed image to the next one.
         if self._trans_mode in ("fade", "merge") and self._scaled is not None:
@@ -253,8 +275,8 @@ class FanartSlideshowRenderer:
             self._trans_active = False
         self._index = _pick_next_index(
             self._index, len(self._image_refs), self._order_mode)
+        self._last_advance_mono = time.monotonic()
         self._load_index(self._index)
-        self._last_advance = pg.time.get_ticks()
 
     def is_transitioning(self):
         return self._trans_active
@@ -319,7 +341,7 @@ class FanartSlideshowRenderer:
             return
         self._index = i
         ref = self._image_refs[i]
-        _persist_set(self._artist_key, self._image_refs, i)
+        _persist_write(self._artist_key, self._image_refs, i, self._last_advance_mono)
         if ref in self._cache:
             self._scaled, self._blit_pos = self._cache[ref]
             self._need_first_blit = True
