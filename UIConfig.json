@@ -327,6 +327,18 @@
                              "value": 600
                             },
                             {
+                             "id": "clearFanartCache",
+                             "element": "button",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.CLEAR_FANART_CACHE",
+                             "onClick": {
+                                 "type": "controller",
+                                 "endpoint": "user_interface/peppy_screensaver",
+                                 "method": "clearFanartCache"
+                             }
+                            },
+                            {
                              "id": "useSystemFonts",
                              "element": "switch",
                              "doc": "TRANSLATE.PEPPY_SCREENSAVER.USE_SYSTEM_FONTS_DOC",

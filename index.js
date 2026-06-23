@@ -2582,6 +2582,67 @@ peppyScreensaver.prototype.fanartListLocalImages = function (dir) {
   return out;
 };
 
+peppyScreensaver.prototype.fanartSourceFingerprint = function (paths) {
+  if (!paths || !paths.length) {
+    return '';
+  }
+  return paths.map(function (p) {
+    try {
+      var st = fs.statSync(p);
+      return p + ':' + st.mtimeMs + ':' + st.size;
+    } catch (e) {
+      return p + ':0:0';
+    }
+  }).sort().join(',');
+};
+
+peppyScreensaver.prototype.fanartResolveLocalSource = function (artist, uri) {
+  var self = this;
+  if (artist.indexOf('/') === -1 && artist.indexOf('..') === -1) {
+    var personalImgs = self.fanartListLocalImages(FanartPersonalArtDir + '/' + artist);
+    if (personalImgs.length) {
+      return {
+        source: 'personal',
+        picked: personalImgs.map(function (p) { return { type: 'file', path: p }; }),
+        fingerprint: 'personal:' + self.fanartSourceFingerprint(personalImgs)
+      };
+    }
+  }
+  if (uri) {
+    var artistDir = self.fanartResolveArtistMusicDir(uri);
+    if (artistDir) {
+      var subImgs = self.fanartListLocalImages(path.join(artistDir, 'fanart'));
+      if (subImgs.length) {
+        return {
+          source: 'local-fanart',
+          picked: subImgs.map(function (p) { return { type: 'file', path: p }; }),
+          fingerprint: 'local-fanart:' + self.fanartSourceFingerprint(subImgs)
+        };
+      }
+    }
+  }
+  return null;
+};
+
+peppyScreensaver.prototype.fanartShouldUseDiskCache = function (cached, artist, uri) {
+  var self = this;
+  if (!cached || !cached.images || !cached.images.length) {
+    return false;
+  }
+  var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
+  if (!fs.existsSync(firstFile)) {
+    return false;
+  }
+  var localNow = self.fanartResolveLocalSource(artist, uri);
+  if (localNow) {
+    return cached.source === localNow.source && cached.sourceSig === localNow.fingerprint;
+  }
+  if (cached.source === 'personal' || cached.source === 'local-fanart') {
+    return false;
+  }
+  return (Date.now() - (cached.ts || 0)) < FANART_TTL_MS;
+};
+
 peppyScreensaver.prototype.fanartResolveArtistMusicDir = function (uri) {
   try {
     var san = uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, '');
@@ -2692,37 +2753,21 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
   var manifestPath = artistCacheDir + '/manifest.json';
   try {
     var cached = self.fanartReadManifest(manifestPath);
-    if (cached && cached.images && cached.images.length && (Date.now() - (cached.ts || 0)) < FANART_TTL_MS) {
-      var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
-      if (fs.existsSync(firstFile)) {
-        galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
-        return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
-      }
+    if (self.fanartShouldUseDiskCache(cached, artist, uri)) {
+      galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
+      return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
     }
     fs.ensureDirSync(artistCacheDir);
 
     var source = null;
     var picked = [];
+    var sourceSig = null;
 
-    // Tier 1: Volumio personal artist art folder (name-keyed)
-    if (artist.indexOf('/') === -1 && artist.indexOf('..') === -1) {
-      var localImgs = self.fanartListLocalImages(FanartPersonalArtDir + '/' + artist);
-      if (localImgs.length) {
-        source = 'personal';
-        picked = localImgs.map(function (p) { return { type: 'file', path: p }; });
-      }
-    }
-
-    // Tier 2: fanart/ subfolder in the artist's music directory
-    if (!picked.length && uri) {
-      var artistDir = self.fanartResolveArtistMusicDir(uri);
-      if (artistDir) {
-        var subImgs = self.fanartListLocalImages(path.join(artistDir, 'fanart'));
-        if (subImgs.length) {
-          source = 'local-fanart';
-          picked = subImgs.map(function (p) { return { type: 'file', path: p }; });
-        }
-      }
+    var localSource = self.fanartResolveLocalSource(artist, uri);
+    if (localSource) {
+      source = localSource.source;
+      picked = localSource.picked;
+      sourceSig = localSource.fingerprint;
     }
 
     // Tier 3: fanart.tv full set (MBID via MusicBrainz). Key mode decides which
@@ -2805,13 +2850,66 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
       return { success: false, error: 'fetch failed' };
     }
 
-    self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, images: images });
+    self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, sourceSig: sourceSig, images: images });
     galleryLog(self.logger, 'basic', 'getArtistFanart "' + artist + '" -> ' + images.length + ' image(s) from ' + source);
     return { success: true, source: source, images: images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
   } catch (err) {
     self.logger.error(id + 'getArtistFanart: ' + err.message);
     return { success: false, error: err.message };
   }
+};
+
+peppyScreensaver.prototype.clearFanartCache = function () {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  self.commandRouter.broadcastMessage('openModal', {
+    title: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_CONFIRM_TITLE'),
+    message: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_CONFIRM_MSG'),
+    size: 'md',
+    buttons: [
+      {
+        name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+        class: 'btn btn-default',
+        emit: 'closeModals',
+        payload: ''
+      },
+      {
+        name: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE'),
+        class: 'btn btn-warning',
+        emit: 'callMethod',
+        payload: {
+          endpoint: 'user_interface/peppy_screensaver',
+          method: 'clearFanartCacheConfirmed',
+          data: {}
+        }
+      }
+    ]
+  });
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.clearFanartCacheConfirmed = function () {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  try {
+    if (fs.existsSync(FanartCacheDir)) {
+      fs.readdirSync(FanartCacheDir).forEach(function (f) {
+        if (f === 'mbid.json') { return; }
+        fs.removeSync(path.join(FanartCacheDir, f));
+      });
+    }
+    if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
+    galleryLog(self.logger, 'basic', 'fanart cache cleared (mbid.json preserved)');
+    self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_DONE'));
+  } catch (e) {
+    self.logger.error(id + 'clearFanartCacheConfirmed: ' + e.message);
+    self.commandRouter.pushToastMessage('error', pluginName, e.message);
+  }
+  defer.resolve();
+  return defer.promise;
 };
 
 function escapeThemeGalleryHtml(text) {

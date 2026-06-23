@@ -74,6 +74,8 @@ class FanartSlideshowRenderer:
 
         self._artist_key = "__peppy_init__"
         self._track_key = None
+        self._last_artist = None
+        self._last_uri = None
         self._image_refs = []
         self._index = 0
         self._scaled = None
@@ -108,6 +110,8 @@ class FanartSlideshowRenderer:
         Returns True if the displayed image changed.
         """
         a = self._artist_norm(artist)
+        self._last_artist = artist
+        self._last_uri = uri
         if a != self._artist_key:
             self._artist_key = a
             self._track_key = uri
@@ -135,7 +139,9 @@ class FanartSlideshowRenderer:
         changed = False
         if uri != self._track_key:
             self._track_key = uri
-            if self.cadence == "track" and len(self._image_refs) > 1:
+            if self._refresh_image_list_if_changed(artist, uri):
+                changed = True
+            elif self.cadence == "track" and len(self._image_refs) > 1:
                 self._advance()
                 changed = True
 
@@ -143,9 +149,38 @@ class FanartSlideshowRenderer:
         if self._interval_ms > 0 and len(self._image_refs) > 1:
             now = pg.time.get_ticks()
             if now - self._last_advance >= self._interval_ms:
-                self._advance()
-                changed = True
+                if self._refresh_image_list_if_changed(artist, uri):
+                    changed = True
+                elif len(self._image_refs) > 1:
+                    self._advance()
+                    changed = True
         return changed
+
+    def _refresh_image_list_if_changed(self, artist, uri):
+        """Re-query the server; reload surfaces when the image set changed."""
+        if not (self.pos and self.dim):
+            return False
+        fresh = self._fetch_list(artist, uri)
+        if fresh == self._image_refs:
+            return False
+        self._image_refs = fresh
+        self._cache = {}
+        self._trans_active = False
+        self._prev_scaled = None
+        if not fresh:
+            self._scaled = None
+            self._index = 0
+            self._needs_redraw = True
+            return True
+        if self._trans_mode in ("fade", "merge") and self._scaled is not None:
+            self._prev_scaled = self._scaled
+            self._prev_blit_pos = self._blit_pos
+            self._trans_active = True
+            self._trans_start = pg.time.get_ticks()
+        self._index = 0
+        self._load_index(0)
+        self._needs_redraw = True
+        return True
 
     def _advance(self):
         # Begin a transition from the currently displayed image to the next one.
