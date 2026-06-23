@@ -9,14 +9,14 @@ from /albumart?sectionimage=<path>, so this works identically for the local
 screensaver and remote clients.
 
 Caching: the image set is fetched once per artist change; decoded/scaled surfaces
-are cached, never rebuilt per frame. The renderer exposes a backing rect so the
-handlers' anti-collision (bgr_surface) clearing works exactly like the other art
-elements. Cadence: hard cut, advancing one image per track within the same artist,
-plus an optional timed interval (interval_ms from the endpoint / global config);
-a cross-fade is a later enhancement.
+are cached, never rebuilt per frame. A module-level index store keeps the current
+slideshow position across handler recreation (e.g. random meter skin changes).
+Order mode (sequential / random) and interval/transition come from the plugin UI
+via the peppy_screensaver_artistfanart endpoint, not from meters.txt.
 """
 
 import io
+import random
 import sys
 import json
 import urllib.request
@@ -63,6 +63,56 @@ def _decode_surface_bounded(img_bytes, box, want_alpha=False):
     return pg.image.load(io.BytesIO(img_bytes))
 
 
+# Slideshow position keyed by artist + image list; survives handler recreation
+# when random meter mode switches skins (same Python process).
+_PERSISTENT_INDEX = {}
+_PERSISTENT_MAX = 20
+
+
+def _persist_key(artist_norm, image_refs):
+    if not artist_norm or not image_refs:
+        return None
+    return artist_norm + "\0" + "\0".join(image_refs)
+
+
+def _persist_get(artist_norm, image_refs):
+    key = _persist_key(artist_norm, image_refs)
+    if key is None:
+        return None
+    return _PERSISTENT_INDEX.get(key)
+
+
+def _persist_set(artist_norm, image_refs, index):
+    key = _persist_key(artist_norm, image_refs)
+    if key is None:
+        return
+    _PERSISTENT_INDEX[key] = int(index)
+    while len(_PERSISTENT_INDEX) > _PERSISTENT_MAX:
+        _PERSISTENT_INDEX.pop(next(iter(_PERSISTENT_INDEX)))
+
+
+def _resolve_start_index(artist_norm, image_refs, order_mode):
+    n = len(image_refs)
+    if n <= 0:
+        return 0
+    stored = _persist_get(artist_norm, image_refs)
+    if stored is not None:
+        return max(0, min(stored, n - 1))
+    if order_mode == "random" and n > 1:
+        return random.randrange(n)
+    return 0
+
+
+def _pick_next_index(current, n, order_mode):
+    if n <= 1:
+        return 0
+    if order_mode == "random":
+        if n == 2:
+            return 1 - current
+        return random.choice([i for i in range(n) if i != current])
+    return (current + 1) % n
+
+
 class FanartSlideshowRenderer:
     def __init__(self, pos, dim, scale_mode="fit", cadence="track",
                  volumio_url="http://localhost:3000"):
@@ -85,6 +135,7 @@ class FanartSlideshowRenderer:
         self._need_first_blit = False
         self._interval_ms = 0       # timed advance (0 = per-track only); from the endpoint
         self._last_advance = 0      # pg ticks of the last image advance
+        self._order_mode = "sequential"  # 'sequential' | 'random'; from the endpoint
 
         # Transition state (background z-order only; handlers gate the per-frame redraw).
         # Mode/duration come from the endpoint (global setting): 'none' | 'fade' | 'merge'.
@@ -132,7 +183,7 @@ class FanartSlideshowRenderer:
                         self._prev_blit_pos = None
                         self._trans_active = True
                         self._trans_start = pg.time.get_ticks()
-                    self._load_index(0)
+                    self._apply_start_index(a)
             self._last_advance = pg.time.get_ticks()
             return True
 
@@ -177,10 +228,18 @@ class FanartSlideshowRenderer:
             self._prev_blit_pos = self._blit_pos
             self._trans_active = True
             self._trans_start = pg.time.get_ticks()
-        self._index = 0
-        self._load_index(0)
+        self._apply_start_index(self._artist_key)
         self._needs_redraw = True
         return True
+
+    def _apply_start_index(self, artist_norm):
+        """Show the persisted or first/random image for this artist + image set."""
+        if not self._image_refs:
+            self._index = 0
+            self._scaled = None
+            return
+        start = _resolve_start_index(artist_norm, self._image_refs, self._order_mode)
+        self._load_index(start)
 
     def _advance(self):
         # Begin a transition from the currently displayed image to the next one.
@@ -192,7 +251,8 @@ class FanartSlideshowRenderer:
         else:
             self._prev_scaled = None
             self._trans_active = False
-        self._index = (self._index + 1) % len(self._image_refs)
+        self._index = _pick_next_index(
+            self._index, len(self._image_refs), self._order_mode)
         self._load_index(self._index)
         self._last_advance = pg.time.get_ticks()
 
@@ -231,6 +291,8 @@ class FanartSlideshowRenderer:
                 self._trans_ms = 600
             if self._trans_ms < 50:
                 self._trans_ms = 50
+            order = (inner.get("order") or "sequential")
+            self._order_mode = order if order in ("sequential", "random") else "sequential"
             if inner.get("success") and isinstance(inner.get("images"), list):
                 return inner["images"]
             return []
@@ -253,8 +315,11 @@ class FanartSlideshowRenderer:
     def _load_index(self, i):
         if i < 0 or i >= len(self._image_refs):
             self._scaled = None
+            self._index = 0
             return
+        self._index = i
         ref = self._image_refs[i]
+        _persist_set(self._artist_key, self._image_refs, i)
         if ref in self._cache:
             self._scaled, self._blit_pos = self._cache[ref]
             self._need_first_blit = True

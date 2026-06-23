@@ -130,6 +130,7 @@ Browse and manage meter themes, and configure the artist fanart slideshow. A sin
 | fanart.tv key | Personal (default) uses your own key as the api_key; Project uses the built-in key (testing/development only) |
 | Personal fanart.tv key | Your own fanart.tv API key; required when key mode is Personal (blank skips the fanart.tv tier) |
 | Fanart change interval | Seconds between automatic fanart changes; `0` = change only on track change |
+| Fanart order | Sequential (filename order) or Random; current image kept across random meter skin changes |
 | Fanart transition | Slideshow transition: None / Fade in-out / Merge (crossfade), background-area fanart only |
 | Transition duration | Fanart transition length in ms (50–3000, default 600) |
 

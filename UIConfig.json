@@ -198,6 +198,7 @@
                                       "fanartKeyMode",
                                       "fanart_personal_key",
                                       "fanartInterval",
+                                      "fanartOrder",
                                       "fanartTransition",
                                       "fanartTransitionMs",
                                       "useSystemFonts"
@@ -297,6 +298,18 @@
                                              {"max": 3600}
                                            ],
                              "value": 0
+                            },
+                            {
+                             "id": "fanartOrder",
+                             "element": "select",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_LABEL",
+                             "value": {"value": "sequential", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_SEQUENTIAL"},
+                             "options": [
+                                          {"value": "sequential", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_SEQUENTIAL"},
+                                          {"value": "random", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_RANDOM"}
+                                        ]
                             },
                             {
                              "id": "fanartTransition",

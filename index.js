@@ -809,6 +809,11 @@ peppyScreensaver.prototype.getUIConfig = function() {
             C('fanartKeyMode').value.label = self.commandRouter.getI18nString(fanartKeyMode === 'project' ? 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT' : 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL');
             C('fanart_personal_key').value = self.config.get('fanart_personal_key') || '';
             C('fanartInterval').value = parseInt(self.config.get('fanartInterval'), 10) || 0;
+            var fanartOrder = self.config.get('fanartOrder') || 'sequential';
+            if (['sequential', 'random'].indexOf(fanartOrder) === -1) { fanartOrder = 'sequential'; }
+            var fanartOrderLabels = {sequential: 'PEPPY_SCREENSAVER.FANART_ORDER_SEQUENTIAL', random: 'PEPPY_SCREENSAVER.FANART_ORDER_RANDOM'};
+            C('fanartOrder').value.value = fanartOrder;
+            C('fanartOrder').value.label = self.commandRouter.getI18nString(fanartOrderLabels[fanartOrder] || fanartOrderLabels.sequential);
             var fanartTransition = self.config.get('fanartTransition') || 'none';
             var fanartTransitionLabels = {none: 'PEPPY_SCREENSAVER.FANART_TRANSITION_NONE', fade: 'PEPPY_SCREENSAVER.FANART_TRANSITION_FADE', merge: 'PEPPY_SCREENSAVER.FANART_TRANSITION_MERGE'};
             C('fanartTransition').value.value = fanartTransition;
@@ -2728,6 +2733,22 @@ peppyScreensaver.prototype.fanartFetchMetaVolumio = async function (artist) {
 // of sectionimage paths (served via /albumart?sectionimage=...), populating an on-disk
 // cache. Cascade: personal artist folder -> fanart/ subfolder -> fanart.tv (MBID) ->
 // meta.volumio.org single. POST { endpoint: 'peppy_screensaver_artistfanart', data: { artist, uri } }
+function fanartPlaybackOptions(self) {
+  var fanartIntervalMs = (parseInt(self.config.get('fanartInterval'), 10) || 0) * 1000;
+  var fanartTransition = self.config.get('fanartTransition') || 'none';
+  if (['none', 'fade', 'merge'].indexOf(fanartTransition) === -1) { fanartTransition = 'none'; }
+  var fanartTransitionMs = parseInt(self.config.get('fanartTransitionMs'), 10);
+  if (isNaN(fanartTransitionMs) || fanartTransitionMs < 50) { fanartTransitionMs = 600; }
+  var fanartOrder = self.config.get('fanartOrder') || 'sequential';
+  if (['sequential', 'random'].indexOf(fanartOrder) === -1) { fanartOrder = 'sequential'; }
+  return {
+    interval_ms: fanartIntervalMs,
+    transition: fanartTransition,
+    transition_ms: fanartTransitionMs,
+    order: fanartOrder
+  };
+}
+
 peppyScreensaver.prototype.getArtistFanart = async function (data) {
   var self = this;
   var artist = (data && typeof data.artist === 'string') ? data.artist.trim() : '';
@@ -2738,13 +2759,9 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
   // Master switch (Item 6): fanart only renders when globally enabled AND the skin
   // declares fanart slots. When disabled, return an empty set so the renderer clears.
   if (self.config.get('fanartEnabled') !== true) {
-    return { success: true, source: 'disabled', images: [], interval_ms: 0 };
+    return { success: true, source: 'disabled', images: [], interval_ms: 0, order: 'sequential' };
   }
-  var fanartIntervalMs = (parseInt(self.config.get('fanartInterval'), 10) || 0) * 1000;
-  var fanartTransition = self.config.get('fanartTransition') || 'none';
-  if (['none', 'fade', 'merge'].indexOf(fanartTransition) === -1) { fanartTransition = 'none'; }
-  var fanartTransitionMs = parseInt(self.config.get('fanartTransitionMs'), 10);
-  if (isNaN(fanartTransitionMs) || fanartTransitionMs < 50) { fanartTransitionMs = 600; }
+  var fanartOpts = fanartPlaybackOptions(self);
   var slug = fanartArtistSlug(artist);
   if (!slug) {
     return { success: false, error: 'invalid artist' };
@@ -2755,7 +2772,9 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
     var cached = self.fanartReadManifest(manifestPath);
     if (self.fanartShouldUseDiskCache(cached, artist, uri)) {
       galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
-      return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
+      return { success: true, source: cached.source + ':cached', images: cached.images,
+        interval_ms: fanartOpts.interval_ms, transition: fanartOpts.transition,
+        transition_ms: fanartOpts.transition_ms, order: fanartOpts.order };
     }
     fs.ensureDirSync(artistCacheDir);
 
@@ -2852,7 +2871,9 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
 
     self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, sourceSig: sourceSig, images: images });
     galleryLog(self.logger, 'basic', 'getArtistFanart "' + artist + '" -> ' + images.length + ' image(s) from ' + source);
-    return { success: true, source: source, images: images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
+    return { success: true, source: source, images: images,
+      interval_ms: fanartOpts.interval_ms, transition: fanartOpts.transition,
+      transition_ms: fanartOpts.transition_ms, order: fanartOpts.order };
   } catch (err) {
     self.logger.error(id + 'getArtistFanart: ' + err.message);
     return { success: false, error: err.message };
@@ -3492,11 +3513,16 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     var transitionMs = parseInt(data && data.fanartTransitionMs, 10);
     if (isNaN(transitionMs) || transitionMs < 50) { transitionMs = 600; }
     if (transitionMs > 3000) { transitionMs = 3000; }
+    var order = (data && data.fanartOrder && typeof data.fanartOrder === 'object')
+      ? data.fanartOrder.value
+      : (data && data.fanartOrder);
+    if (['sequential', 'random'].indexOf(order) === -1) { order = 'sequential'; }
 
     self.config.set('fanartEnabled', enabled);
     self.config.set('fanartKeyMode', keyMode);
     self.config.set('fanart_personal_key', key);
     self.config.set('fanartInterval', interval);
+    self.config.set('fanartOrder', order);
     self.config.set('fanartTransition', transition);
     self.config.set('fanartTransitionMs', transitionMs);
 
