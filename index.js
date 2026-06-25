@@ -2519,7 +2519,28 @@ peppyScreensaver.prototype.getFolderImage = function (data) {
 // Artist fanart (Item 6) - server-side retrieval + on-disk cache
 // =============================================================================
 function fanartArtistSlug(artist) {
-  return String(artist).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  var raw = String(artist || '').trim().toLowerCase();
+  if (!raw) {
+    return '';
+  }
+  var ascii = raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  if (ascii) {
+    return ascii;
+  }
+  // Non-Latin names (Thai, CJK, Cyrillic, …): ASCII slug would be empty and
+  // blocked fanart entirely; use a stable hashed cache directory instead.
+  return 'u-' + crypto.createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 16);
+}
+
+function fanartDecodeUriPath(part) {
+  if (!part || part.indexOf('%') === -1) {
+    return part;
+  }
+  try {
+    return decodeURIComponent(part);
+  } catch (e) {
+    return part;
+  }
 }
 
 function fanartHttpsGetText(url, headers, timeoutMs) {
@@ -2650,7 +2671,7 @@ peppyScreensaver.prototype.fanartShouldUseDiskCache = function (cached, artist, 
 
 peppyScreensaver.prototype.fanartResolveArtistMusicDir = function (uri) {
   try {
-    var san = uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, '');
+    var san = fanartDecodeUriPath(uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, ''));
     var base = san.startsWith('/') ? '/mnt' + san : '/mnt/' + san;
     var albumDir = path.dirname(path.resolve(base));
     var artistDir = path.dirname(albumDir);
