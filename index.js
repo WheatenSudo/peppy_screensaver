@@ -1638,6 +1638,7 @@ peppyScreensaver.prototype.saveVUMeterConf = function (confData) {
     
     if (!noChanges) {
         fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, {whitespace: true}));
+        try { self.updateConfigVersion(); } catch (e) {}
         // Restart meter to apply new settings
         if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
     }
@@ -3439,6 +3440,7 @@ peppyScreensaver.prototype.applyActiveThemeFolder = function (folder) {
   if (spectrum_config) {
     fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, { whitespace: true }));
   }
+  try { self.updateConfigVersion(); } catch (e) {}
   if (fs.existsSync(runFlag)) {
     fs.removeSync(runFlag);
   }
