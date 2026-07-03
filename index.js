@@ -809,6 +809,11 @@ peppyScreensaver.prototype.getUIConfig = function() {
             C('fanartKeyMode').value.label = self.commandRouter.getI18nString(fanartKeyMode === 'project' ? 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PROJECT' : 'PEPPY_SCREENSAVER.FANART_KEY_MODE_PERSONAL');
             C('fanart_personal_key').value = self.config.get('fanart_personal_key') || '';
             C('fanartInterval').value = parseInt(self.config.get('fanartInterval'), 10) || 0;
+            var fanartOrder = self.config.get('fanartOrder') || 'sequential';
+            if (['sequential', 'random'].indexOf(fanartOrder) === -1) { fanartOrder = 'sequential'; }
+            var fanartOrderLabels = {sequential: 'PEPPY_SCREENSAVER.FANART_ORDER_SEQUENTIAL', random: 'PEPPY_SCREENSAVER.FANART_ORDER_RANDOM'};
+            C('fanartOrder').value.value = fanartOrder;
+            C('fanartOrder').value.label = self.commandRouter.getI18nString(fanartOrderLabels[fanartOrder] || fanartOrderLabels.sequential);
             var fanartTransition = self.config.get('fanartTransition') || 'none';
             var fanartTransitionLabels = {none: 'PEPPY_SCREENSAVER.FANART_TRANSITION_NONE', fade: 'PEPPY_SCREENSAVER.FANART_TRANSITION_FADE', merge: 'PEPPY_SCREENSAVER.FANART_TRANSITION_MERGE'};
             C('fanartTransition').value.value = fanartTransition;
@@ -1633,6 +1638,7 @@ peppyScreensaver.prototype.saveVUMeterConf = function (confData) {
     
     if (!noChanges) {
         fs.writeFileSync(PeppyConf, ini.stringify(peppy_config, {whitespace: true}));
+        try { self.updateConfigVersion(); } catch (e) {}
         // Restart meter to apply new settings
         if (fs.existsSync(runFlag)){fs.removeSync(runFlag);}
     }
@@ -2514,7 +2520,28 @@ peppyScreensaver.prototype.getFolderImage = function (data) {
 // Artist fanart (Item 6) - server-side retrieval + on-disk cache
 // =============================================================================
 function fanartArtistSlug(artist) {
-  return String(artist).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  var raw = String(artist || '').trim().toLowerCase();
+  if (!raw) {
+    return '';
+  }
+  var ascii = raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  if (ascii) {
+    return ascii;
+  }
+  // Non-Latin names (Thai, CJK, Cyrillic, …): ASCII slug would be empty and
+  // blocked fanart entirely; use a stable hashed cache directory instead.
+  return 'u-' + crypto.createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 16);
+}
+
+function fanartDecodeUriPath(part) {
+  if (!part || part.indexOf('%') === -1) {
+    return part;
+  }
+  try {
+    return decodeURIComponent(part);
+  } catch (e) {
+    return part;
+  }
 }
 
 function fanartHttpsGetText(url, headers, timeoutMs) {
@@ -2582,9 +2609,70 @@ peppyScreensaver.prototype.fanartListLocalImages = function (dir) {
   return out;
 };
 
+peppyScreensaver.prototype.fanartSourceFingerprint = function (paths) {
+  if (!paths || !paths.length) {
+    return '';
+  }
+  return paths.map(function (p) {
+    try {
+      var st = fs.statSync(p);
+      return p + ':' + st.mtimeMs + ':' + st.size;
+    } catch (e) {
+      return p + ':0:0';
+    }
+  }).sort().join(',');
+};
+
+peppyScreensaver.prototype.fanartResolveLocalSource = function (artist, uri) {
+  var self = this;
+  if (artist.indexOf('/') === -1 && artist.indexOf('..') === -1) {
+    var personalImgs = self.fanartListLocalImages(FanartPersonalArtDir + '/' + artist);
+    if (personalImgs.length) {
+      return {
+        source: 'personal',
+        picked: personalImgs.map(function (p) { return { type: 'file', path: p }; }),
+        fingerprint: 'personal:' + self.fanartSourceFingerprint(personalImgs)
+      };
+    }
+  }
+  if (uri) {
+    var artistDir = self.fanartResolveArtistMusicDir(uri);
+    if (artistDir) {
+      var subImgs = self.fanartListLocalImages(path.join(artistDir, 'fanart'));
+      if (subImgs.length) {
+        return {
+          source: 'local-fanart',
+          picked: subImgs.map(function (p) { return { type: 'file', path: p }; }),
+          fingerprint: 'local-fanart:' + self.fanartSourceFingerprint(subImgs)
+        };
+      }
+    }
+  }
+  return null;
+};
+
+peppyScreensaver.prototype.fanartShouldUseDiskCache = function (cached, artist, uri) {
+  var self = this;
+  if (!cached || !cached.images || !cached.images.length) {
+    return false;
+  }
+  var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
+  if (!fs.existsSync(firstFile)) {
+    return false;
+  }
+  var localNow = self.fanartResolveLocalSource(artist, uri);
+  if (localNow) {
+    return cached.source === localNow.source && cached.sourceSig === localNow.fingerprint;
+  }
+  if (cached.source === 'personal' || cached.source === 'local-fanart') {
+    return false;
+  }
+  return (Date.now() - (cached.ts || 0)) < FANART_TTL_MS;
+};
+
 peppyScreensaver.prototype.fanartResolveArtistMusicDir = function (uri) {
   try {
-    var san = uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, '');
+    var san = fanartDecodeUriPath(uri.replace(/^music-library\/?/, '').replace(/^mnt\/?/, ''));
     var base = san.startsWith('/') ? '/mnt' + san : '/mnt/' + san;
     var albumDir = path.dirname(path.resolve(base));
     var artistDir = path.dirname(albumDir);
@@ -2667,6 +2755,22 @@ peppyScreensaver.prototype.fanartFetchMetaVolumio = async function (artist) {
 // of sectionimage paths (served via /albumart?sectionimage=...), populating an on-disk
 // cache. Cascade: personal artist folder -> fanart/ subfolder -> fanart.tv (MBID) ->
 // meta.volumio.org single. POST { endpoint: 'peppy_screensaver_artistfanart', data: { artist, uri } }
+function fanartPlaybackOptions(self) {
+  var fanartIntervalMs = (parseInt(self.config.get('fanartInterval'), 10) || 0) * 1000;
+  var fanartTransition = self.config.get('fanartTransition') || 'none';
+  if (['none', 'fade', 'merge'].indexOf(fanartTransition) === -1) { fanartTransition = 'none'; }
+  var fanartTransitionMs = parseInt(self.config.get('fanartTransitionMs'), 10);
+  if (isNaN(fanartTransitionMs) || fanartTransitionMs < 50) { fanartTransitionMs = 600; }
+  var fanartOrder = self.config.get('fanartOrder') || 'sequential';
+  if (['sequential', 'random'].indexOf(fanartOrder) === -1) { fanartOrder = 'sequential'; }
+  return {
+    interval_ms: fanartIntervalMs,
+    transition: fanartTransition,
+    transition_ms: fanartTransitionMs,
+    order: fanartOrder
+  };
+}
+
 peppyScreensaver.prototype.getArtistFanart = async function (data) {
   var self = this;
   var artist = (data && typeof data.artist === 'string') ? data.artist.trim() : '';
@@ -2677,13 +2781,9 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
   // Master switch (Item 6): fanart only renders when globally enabled AND the skin
   // declares fanart slots. When disabled, return an empty set so the renderer clears.
   if (self.config.get('fanartEnabled') !== true) {
-    return { success: true, source: 'disabled', images: [], interval_ms: 0 };
+    return { success: true, source: 'disabled', images: [], interval_ms: 0, order: 'sequential' };
   }
-  var fanartIntervalMs = (parseInt(self.config.get('fanartInterval'), 10) || 0) * 1000;
-  var fanartTransition = self.config.get('fanartTransition') || 'none';
-  if (['none', 'fade', 'merge'].indexOf(fanartTransition) === -1) { fanartTransition = 'none'; }
-  var fanartTransitionMs = parseInt(self.config.get('fanartTransitionMs'), 10);
-  if (isNaN(fanartTransitionMs) || fanartTransitionMs < 50) { fanartTransitionMs = 600; }
+  var fanartOpts = fanartPlaybackOptions(self);
   var slug = fanartArtistSlug(artist);
   if (!slug) {
     return { success: false, error: 'invalid artist' };
@@ -2692,37 +2792,23 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
   var manifestPath = artistCacheDir + '/manifest.json';
   try {
     var cached = self.fanartReadManifest(manifestPath);
-    if (cached && cached.images && cached.images.length && (Date.now() - (cached.ts || 0)) < FANART_TTL_MS) {
-      var firstFile = PluginPath + '/' + cached.images[0].replace('user_interface/peppy_screensaver/', '');
-      if (fs.existsSync(firstFile)) {
-        galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
-        return { success: true, source: cached.source + ':cached', images: cached.images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
-      }
+    if (self.fanartShouldUseDiskCache(cached, artist, uri)) {
+      galleryLog(self.logger, 'basic', 'getArtistFanart cache hit ' + slug + ' (' + cached.images.length + ' img, ' + cached.source + ')');
+      return { success: true, source: cached.source + ':cached', images: cached.images,
+        interval_ms: fanartOpts.interval_ms, transition: fanartOpts.transition,
+        transition_ms: fanartOpts.transition_ms, order: fanartOpts.order };
     }
     fs.ensureDirSync(artistCacheDir);
 
     var source = null;
     var picked = [];
+    var sourceSig = null;
 
-    // Tier 1: Volumio personal artist art folder (name-keyed)
-    if (artist.indexOf('/') === -1 && artist.indexOf('..') === -1) {
-      var localImgs = self.fanartListLocalImages(FanartPersonalArtDir + '/' + artist);
-      if (localImgs.length) {
-        source = 'personal';
-        picked = localImgs.map(function (p) { return { type: 'file', path: p }; });
-      }
-    }
-
-    // Tier 2: fanart/ subfolder in the artist's music directory
-    if (!picked.length && uri) {
-      var artistDir = self.fanartResolveArtistMusicDir(uri);
-      if (artistDir) {
-        var subImgs = self.fanartListLocalImages(path.join(artistDir, 'fanart'));
-        if (subImgs.length) {
-          source = 'local-fanart';
-          picked = subImgs.map(function (p) { return { type: 'file', path: p }; });
-        }
-      }
+    var localSource = self.fanartResolveLocalSource(artist, uri);
+    if (localSource) {
+      source = localSource.source;
+      picked = localSource.picked;
+      sourceSig = localSource.fingerprint;
     }
 
     // Tier 3: fanart.tv full set (MBID via MusicBrainz). Key mode decides which
@@ -2805,13 +2891,68 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
       return { success: false, error: 'fetch failed' };
     }
 
-    self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, images: images });
+    self.fanartWriteManifest(manifestPath, { ts: Date.now(), source: source, sourceSig: sourceSig, images: images });
     galleryLog(self.logger, 'basic', 'getArtistFanart "' + artist + '" -> ' + images.length + ' image(s) from ' + source);
-    return { success: true, source: source, images: images, interval_ms: fanartIntervalMs, transition: fanartTransition, transition_ms: fanartTransitionMs };
+    return { success: true, source: source, images: images,
+      interval_ms: fanartOpts.interval_ms, transition: fanartOpts.transition,
+      transition_ms: fanartOpts.transition_ms, order: fanartOpts.order };
   } catch (err) {
     self.logger.error(id + 'getArtistFanart: ' + err.message);
     return { success: false, error: err.message };
   }
+};
+
+peppyScreensaver.prototype.clearFanartCache = function () {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  self.commandRouter.broadcastMessage('openModal', {
+    title: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_CONFIRM_TITLE'),
+    message: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_CONFIRM_MSG'),
+    size: 'md',
+    buttons: [
+      {
+        name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+        class: 'btn btn-default',
+        emit: 'closeModals',
+        payload: ''
+      },
+      {
+        name: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE'),
+        class: 'btn btn-warning',
+        emit: 'callMethod',
+        payload: {
+          endpoint: 'user_interface/peppy_screensaver',
+          method: 'clearFanartCacheConfirmed',
+          data: {}
+        }
+      }
+    ]
+  });
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.clearFanartCacheConfirmed = function () {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  try {
+    if (fs.existsSync(FanartCacheDir)) {
+      fs.readdirSync(FanartCacheDir).forEach(function (f) {
+        if (f === 'mbid.json') { return; }
+        fs.removeSync(path.join(FanartCacheDir, f));
+      });
+    }
+    if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
+    galleryLog(self.logger, 'basic', 'fanart cache cleared (mbid.json preserved)');
+    self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_DONE'));
+  } catch (e) {
+    self.logger.error(id + 'clearFanartCacheConfirmed: ' + e.message);
+    self.commandRouter.pushToastMessage('error', pluginName, e.message);
+  }
+  defer.resolve();
+  return defer.promise;
 };
 
 function escapeThemeGalleryHtml(text) {
@@ -3299,6 +3440,7 @@ peppyScreensaver.prototype.applyActiveThemeFolder = function (folder) {
   if (spectrum_config) {
     fs.writeFileSync(SpectrumConf, ini.stringify(spectrum_config, { whitespace: true }));
   }
+  try { self.updateConfigVersion(); } catch (e) {}
   if (fs.existsSync(runFlag)) {
     fs.removeSync(runFlag);
   }
@@ -3394,11 +3536,16 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     var transitionMs = parseInt(data && data.fanartTransitionMs, 10);
     if (isNaN(transitionMs) || transitionMs < 50) { transitionMs = 600; }
     if (transitionMs > 3000) { transitionMs = 3000; }
+    var order = (data && data.fanartOrder && typeof data.fanartOrder === 'object')
+      ? data.fanartOrder.value
+      : (data && data.fanartOrder);
+    if (['sequential', 'random'].indexOf(order) === -1) { order = 'sequential'; }
 
     self.config.set('fanartEnabled', enabled);
     self.config.set('fanartKeyMode', keyMode);
     self.config.set('fanart_personal_key', key);
     self.config.set('fanartInterval', interval);
+    self.config.set('fanartOrder', order);
     self.config.set('fanartTransition', transition);
     self.config.set('fanartTransitionMs', transitionMs);
 

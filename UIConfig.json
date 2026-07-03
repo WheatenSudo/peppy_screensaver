@@ -198,6 +198,7 @@
                                       "fanartKeyMode",
                                       "fanart_personal_key",
                                       "fanartInterval",
+                                      "fanartOrder",
                                       "fanartTransition",
                                       "fanartTransitionMs",
                                       "useSystemFonts"
@@ -299,6 +300,18 @@
                              "value": 0
                             },
                             {
+                             "id": "fanartOrder",
+                             "element": "select",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_LABEL",
+                             "value": {"value": "sequential", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_SEQUENTIAL"},
+                             "options": [
+                                          {"value": "sequential", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_SEQUENTIAL"},
+                                          {"value": "random", "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_ORDER_RANDOM"}
+                                        ]
+                            },
+                            {
                              "id": "fanartTransition",
                              "element": "select",
                              "visibleIf": {"field": "fanartEnabled", "value": true},
@@ -325,6 +338,18 @@
                                              {"max": 3000}
                                            ],
                              "value": 600
+                            },
+                            {
+                             "id": "clearFanartCache",
+                             "element": "button",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.CLEAR_FANART_CACHE",
+                             "onClick": {
+                                 "type": "controller",
+                                 "endpoint": "user_interface/peppy_screensaver",
+                                 "method": "clearFanartCache"
+                             }
                             },
                             {
                              "id": "useSystemFonts",

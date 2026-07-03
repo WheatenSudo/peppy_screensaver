@@ -94,5 +94,9 @@
   "fanartTransitionMs": {
     "value": 600,
     "type": "number"
+  },
+  "fanartOrder": {
+    "value": "sequential",
+    "type": "string"
   }
 }
