@@ -1398,9 +1398,14 @@ class NetworkSpectrumServer:
     
     Supports two modes:
     - Standalone (read_pipe=True): Reads FFT data directly from the spectrum pipe.
-      Use this in 'server' mode where there's no local display.
+      Use this in 'server' (headless) mode where there's no local display.
     - Injected (read_pipe=False): Receives data via set_bins() from SpectrumOutput.
-      Use this in 'server_local' mode to avoid pipe contention with local Spectrum.
+      Use this in 'server_local' when the host meter owns the pipe.
+
+    server_local mutual exclusion (FIFO is single-reader — dual readers flicker):
+    - Local SpectrumOutput alive → injected only; network must release_pipe() first.
+    - No local spectrum consumer → network acquire_pipe() and stream for remotes.
+    Never open the pipe while SpectrumOutput is reading it (see c06ac59).
     
     Packet format (variable size, little-endian):
         - seq (uint32): Sequence number for loss detection
@@ -1427,6 +1432,9 @@ class NetworkSpectrumServer:
         self.level_server = level_server
         self.spectrum_size = spectrum_size
         self.read_pipe = read_pipe
+        # server_local starts injected (read_pipe=False) and may hand the FIFO to/from
+        # the network path. Headless (read_pipe=True) never releases the pipe.
+        self._dynamic_pipe = not read_pipe
         self.seq = 0
         self.sock = None
         self.pipe = None
@@ -1438,7 +1446,6 @@ class NetworkSpectrumServer:
         self._first_broadcast_logged = False
         self._pipe_size = 4 * spectrum_size  # 4 bytes per bin (int32)
         self._injected_bins = None  # For injected mode
-        self._switched_to_pipe = False  # Track if we switched from injected to pipe mode
         self._unknown_traffic = {}  # {ip: {"count": int, "last_seen": float}}
         self._local_ips = set()
         
@@ -1483,7 +1490,9 @@ class NetworkSpectrumServer:
                 self._open_pipe()
     
     def _open_pipe(self):
-        """Open the spectrum pipe for reading."""
+        """Open the spectrum pipe for reading. Idempotent; closes prior fd if any."""
+        if self.pipe is not None:
+            return
         try:
             if os.path.exists(self.SPECTRUM_PIPE_PATH):
                 self.pipe = os.open(self.SPECTRUM_PIPE_PATH, os.O_RDONLY | os.O_NONBLOCK)
@@ -1494,6 +1503,54 @@ class NetworkSpectrumServer:
         except Exception as e:
             log_debug(f"[REMOTE:SPECTRUM] Failed to open pipe: {e}", "basic")
             self.pipe = None
+
+    def _close_pipe_fd(self):
+        """Close pipe fd if open. Does not change read_pipe / inject state."""
+        if self.pipe is None:
+            return
+        try:
+            os.close(self.pipe)
+        except Exception:
+            pass
+        self.pipe = None
+        log_debug("[REMOTE:SPECTRUM] Pipe fd closed", "trace", "remote")
+
+    def acquire_pipe(self):
+        """Own the FIFO for network TX when no local SpectrumOutput is reading it.
+
+        Idempotent. Headless (non-dynamic) only ensures the fd is open.
+        """
+        if not self.enabled:
+            return
+        if not self._dynamic_pipe:
+            if self.pipe is None:
+                self._open_pipe()
+            return
+        if self.read_pipe and self.pipe is not None:
+            return
+        was_pipe = self.read_pipe
+        self._injected_bins = None
+        self.read_pipe = True
+        self._open_pipe()
+        if not was_pipe:
+            log_debug("[REMOTE:SPECTRUM] Acquired pipe for remote stream (no local spectrum)", "basic")
+
+    def release_pipe(self):
+        """Release the FIFO so local SpectrumOutput can own it exclusively.
+
+        Clears stale injected bins so broadcast skips until set_bins() runs.
+        No-op for headless (pipe ownership never handed off).
+        """
+        if not self._dynamic_pipe:
+            return
+        if not self.read_pipe and self.pipe is None and self._injected_bins is None:
+            return
+        was_pipe = self.read_pipe or (self.pipe is not None)
+        self._close_pipe_fd()
+        self.read_pipe = False
+        self._injected_bins = None
+        if was_pipe:
+            log_debug("[REMOTE:SPECTRUM] Released pipe for local spectrum", "basic")
     
     def _read_pipe_data(self):
         """Read latest FFT data from the spectrum pipe.
@@ -1676,13 +1733,8 @@ class NetworkSpectrumServer:
     def stop(self):
         """Stop the server and close resources."""
         self.enabled = False
-        if self.pipe is not None:
-            try:
-                os.close(self.pipe)
-            except Exception:
-                pass
-            self.pipe = None
-            log_debug("[REMOTE:SPECTRUM] Pipe closed", "trace", "remote")
+        self._close_pipe_fd()
+        self._injected_bins = None
         if self.sock:
             try:
                 self.sock.close()
@@ -3543,6 +3595,9 @@ class CallBack:
         self.last_fade_time = 0  # Cooldown to prevent multiple fade-ins
         self.did_fade_in = False  # Track if this instance did fade-in
         self.discovery_announcer = None  # Set by main loop for active meter sync
+        # NetworkSpectrumServer for server_local pipe handoff (release before local
+        # SpectrumOutput starts; acquire after it stops). None when remote disabled.
+        self.spectrum_server = None
         
     def vol_FadeIn_thread(self, meter):
         """Volume fade-in thread."""
@@ -3733,6 +3788,9 @@ class CallBack:
                             log_debug(f"spectrum_factory failed: {e}", "basic")
                             self.spectrum_output = None
                     if self.spectrum_output is None:
+                        # FIFO single-reader: network must release before local opens pipe.
+                        if self.spectrum_server is not None:
+                            self.spectrum_server.release_pipe()
                         init_spectrum_debug(DEBUG_LEVEL_CURRENT, DEBUG_TRACE)
                         self.spectrum_output = SpectrumOutput(self.util, self.meter_config_volumio, CurDir)
                         self.spectrum_output.start()
@@ -3753,6 +3811,9 @@ class CallBack:
         if self.spectrum_output is not None:
             self.spectrum_output.stop_thread()
             self.spectrum_output = None
+            # Local consumer gone: network may own the FIFO for remotes (server_local).
+            if self.spectrum_server is not None:
+                self.spectrum_server.acquire_pipe()
             
         if hasattr(self, 'FadeIn'):
             del self.FadeIn
@@ -4307,11 +4368,46 @@ def start_display_output(pm, callback, meter_config_volumio, volumio_host='local
         
         # Wire discovery announcer to callback for active meter sync
         callback.discovery_announcer = discovery_announcer
+        # Wire spectrum server for pipe handoff on local spectrum start/stop
+        callback.spectrum_server = spectrum_server
         # Note: Initial active meter is set AFTER pm.meter.start() (see below)
         # because random meter selection happens during start()
         
         log_debug(f"Remote display server enabled, mode: {remote_mode}", "basic")
     
+    def feed_spectrum_to_remotes():
+        """Feed spectrum UDP with exclusive FIFO ownership (server_local).
+
+        Local SpectrumOutput or spectrum-as-meter owns the pipe → inject only.
+        Otherwise network acquires the pipe so remotes still get live bins.
+        Never open the pipe while a local consumer is reading it (c06ac59).
+        """
+        if not spectrum_server or not spectrum_server.enabled:
+            return
+
+        # Host overlay spectrum owns the FIFO
+        if callback.spectrum_output is not None:
+            spectrum_server.release_pipe()
+            bins = callback.spectrum_output.get_current_bins()
+            if bins:
+                spectrum_server.set_bins(bins)
+            spectrum_server.broadcast()
+            return
+
+        # Spectrum-as-meter: PeppySpectrum meter itself reads the FIFO
+        prev = getattr(pm.meter, '_prev_bar_heights', None)
+        if prev is not None:
+            spectrum_server.release_pipe()
+            bins = list(prev)
+            if bins:
+                spectrum_server.set_bins(bins)
+            spectrum_server.broadcast()
+            return
+
+        # No local consumer — network owns the FIFO for remotes
+        spectrum_server.acquire_pipe()
+        spectrum_server.broadcast()
+
     # -------------------------------------------------------------------------
     # Resolve active meter name
     # -------------------------------------------------------------------------
@@ -4839,37 +4935,7 @@ def start_display_output(pm, callback, meter_config_volumio, volumio_host='local
                             level_server._logged_error = True
                 
                 # Broadcast spectrum data to remote clients (handler path)
-                if spectrum_server and spectrum_server.enabled:
-                    # In injected mode, get bins from SpectrumOutput (which reads the pipe)
-                    if not spectrum_server.read_pipe:
-                        bins = None
-                        source = "none"
-                        
-                        # First try: SpectrumOutput (for handler-based meters with spectrum overlay)
-                        if callback.spectrum_output:
-                            bins = callback.spectrum_output.get_current_bins()
-                            source = "spectrum_output"
-                        
-                        # Second try: Direct from pm.meter if it IS a Spectrum (spectrum-only meters)
-                        # This avoids pipe contention when the meter itself is the spectrum renderer
-                        if not bins or all(b == 0 for b in bins):
-                            if hasattr(pm.meter, '_prev_bar_heights') and pm.meter._prev_bar_heights:
-                                meter_bins = list(pm.meter._prev_bar_heights)
-                                if any(b > 0 for b in meter_bins):
-                                    bins = meter_bins
-                                    source = "pm.meter"
-                                    if not hasattr(spectrum_server, '_logged_meter_fallback'):
-                                        log_debug("[NetworkSpectrumServer] Using pm.meter._prev_bar_heights as source", "basic")
-                                        spectrum_server._logged_meter_fallback = True
-                        
-                        if bins:
-                            spectrum_server.set_bins(bins)
-                        # NOTE: We do NOT switch to pipe mode in server_local mode
-                        # because that would cause pipe contention with the local
-                        # SpectrumOutput and cause display flickering. If there's no
-                        # spectrum data available (e.g., during meter transitions),
-                        # we simply skip broadcasting this frame.
-                    spectrum_server.broadcast()
+                feed_spectrum_to_remotes()
                 
                 continue
         
@@ -4908,35 +4974,8 @@ def start_display_output(pm, callback, meter_config_volumio, volumio_host='local
                     log_debug(f"[NetworkLevelServer] Broadcast exception: {e}", "basic")
                     level_server._logged_error = True
         
-        # Broadcast spectrum data to remote clients (if server mode enabled)
-        # NOTE: This is the NON-HANDLER path - only runs when no handler is active
-        if spectrum_server and spectrum_server.enabled:
-            # In injected mode, get bins from SpectrumOutput (which reads the pipe)
-            if not spectrum_server.read_pipe:
-                bins = None
-                
-                # First try: SpectrumOutput (for handler-based meters with spectrum overlay)
-                if callback.spectrum_output:
-                    bins = callback.spectrum_output.get_current_bins()
-                
-                # Second try: Direct from pm.meter if it IS a Spectrum (spectrum-only meters)
-                # This avoids pipe contention when the meter itself is the spectrum renderer
-                if not bins or all(b == 0 for b in bins):
-                    if hasattr(pm.meter, '_prev_bar_heights') and pm.meter._prev_bar_heights:
-                        meter_bins = list(pm.meter._prev_bar_heights)
-                        if any(b > 0 for b in meter_bins):
-                            bins = meter_bins
-                            if not hasattr(spectrum_server, '_logged_meter_fallback'):
-                                log_debug("[NetworkSpectrumServer] Using pm.meter._prev_bar_heights as source", "basic")
-                                spectrum_server._logged_meter_fallback = True
-                
-                if bins:
-                    spectrum_server.set_bins(bins)
-                # NOTE: We do NOT switch to pipe mode in server_local mode
-                # because that would cause pipe contention with the local
-                # SpectrumOutput and cause display flickering. If there's no
-                # spectrum data available, we skip broadcasting this frame.
-            spectrum_server.broadcast()
+        # Broadcast spectrum data to remote clients (non-handler path)
+        feed_spectrum_to_remotes()
         
         clock.tick(MAIN_LOOP_FRAME_RATE)
         
