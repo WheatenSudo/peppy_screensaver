@@ -1946,9 +1946,11 @@ class CassetteHandler:
             if rect:
                 clear_regions.append(rect)
 
-        # Folder image (background z-order) needs clearing when the track folder changed
+        # Folder image needs clearing when the track folder changed (background and
+        # overlay). Overlay must clear before meters so a missing/replaced logo does
+        # not leave stale pixels; overlaps_cleared() then redraws meters in the box.
         for _fl in self.folder_layers:
-            if _fl["zorder"] == "background" and _fl["changed"] and _fl["rect"]:
+            if _fl["changed"] and _fl["rect"] and _fl["zorder"] in ("background", "overlay"):
                 clear_regions.append(_fl["rect"])
 
         # Artist fanart (background z-order) needs clearing when the displayed image
@@ -2376,12 +2378,14 @@ class CassetteHandler:
                     sx = self.sample_pos[0]
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
         
-        # LAYER 8b: Folder images (overlay z-order) - above dynamic content, below foreground
+        # LAYER 8b: Folder images (overlay z-order) - above dynamic content, below foreground.
+        # Track-folder change with no image: early clear_regions already wiped the slot.
+        # Track-folder change with a new image: redraw after meters (changed or first blit).
         for _fl in self.folder_layers:
             if _fl["zorder"] != "overlay" or not _fl["r"].has_image():
                 continue
             fl_rect = _fl["r"].get_backing_rect()
-            need_overlay = _fl["r"]._need_first_blit
+            need_overlay = _fl["changed"] or _fl["r"]._need_first_blit
             if not need_overlay and fl_rect:
                 for d in dirty_rects:
                     if d and fl_rect.colliderect(d):

@@ -1435,10 +1435,20 @@ class BasicHandler:
             if _fl["zorder"] == "background" and _fl["changed"]:
                 if self.bgr_surface and _fl["rect"]:
                     self.screen.blit(self.bgr_surface, _fl["rect"].topleft, _fl["rect"])
+                    dirty_rects.append(_fl["rect"].copy())
                 _fl["r"].force_redraw()
                 rect = _fl["r"].render(self.screen)
                 if rect:
                     dirty_rects.append(rect)
+
+        # Overlay folder layers: clear the full slot before meters on track-folder
+        # change (missing logo or replacement). Do not blit overlay here — that
+        # stays after dynamic content. Without this clear, stale logo pixels remain.
+        for _fl in self.folder_layers:
+            if _fl["zorder"] == "overlay" and _fl["changed"] and _fl["rect"]:
+                if self.bgr_surface:
+                    self.screen.blit(self.bgr_surface, _fl["rect"].topleft, _fl["rect"])
+                dirty_rects.append(_fl["rect"].copy())
 
         # LAYER: Artist fanart (background z-order) - BEFORE meters, like album art.
         # During a transition we redraw every frame: restore the clean background in
@@ -1766,12 +1776,13 @@ class BasicHandler:
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
         
         # LAYER: Folder images (overlay z-order) - above dynamic content, below foreground.
-        # Redraw only when first loaded or when something underneath became dirty.
+        # Track-folder change with no image: early bgr clear already wiped the slot.
+        # Track-folder change with a new image: redraw after meters (changed or first blit).
         for _fl in self.folder_layers:
             if _fl["zorder"] != "overlay" or not _fl["r"].has_image():
                 continue
             fl_rect = _fl["r"].get_backing_rect()
-            need_overlay = _fl["r"]._need_first_blit
+            need_overlay = _fl["changed"] or _fl["r"]._need_first_blit
             if not need_overlay and fl_rect:
                 for d in dirty_rects:
                     if d and fl_rect.colliderect(d):
