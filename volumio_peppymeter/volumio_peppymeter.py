@@ -3535,6 +3535,11 @@ class CallBack:
         self.meter = meter
         self.pending_restart = False
         self.spectrum_output = None
+        # Optional factory for remote clients: () -> spectrum output with .start().
+        # When set, peppy_meter_start uses it instead of host SpectrumOutput (pipe).
+        # Needed for random/list meter rotation: peppy_meter_stop clears spectrum_output,
+        # then start must recreate RemoteSpectrumOutput rather than falling back to pipe.
+        self.spectrum_factory = None
         self.last_fade_time = 0  # Cooldown to prevent multiple fade-ins
         self.did_fade_in = False  # Track if this instance did fade-in
         self.discovery_announcer = None  # Set by main loop for active meter sync
@@ -3716,12 +3721,21 @@ class CallBack:
             
             # Start spectrum if visible (but not if already set by remote client)
             if meter_section_volumio[SPECTRUM_VISIBLE]:
-                # Check if spectrum_output was pre-injected (e.g., RemoteSpectrumOutput)
-                # If so, don't create a new SpectrumOutput - use the injected one
+                # Prefer pre-injected output, else remote factory, else host pipe SpectrumOutput.
+                # Random/list rotation calls peppy_meter_stop (clears spectrum_output) then
+                # peppy_meter_start; without spectrum_factory the remote would fall back to
+                # host SpectrumOutput and show demo/pipe garbage instead of network bins.
                 if self.spectrum_output is None:
-                    init_spectrum_debug(DEBUG_LEVEL_CURRENT, DEBUG_TRACE)
-                    self.spectrum_output = SpectrumOutput(self.util, self.meter_config_volumio, CurDir)
-                    self.spectrum_output.start()
+                    if self.spectrum_factory is not None:
+                        try:
+                            self.spectrum_output = self.spectrum_factory()
+                        except Exception as e:
+                            log_debug(f"spectrum_factory failed: {e}", "basic")
+                            self.spectrum_output = None
+                    if self.spectrum_output is None:
+                        init_spectrum_debug(DEBUG_LEVEL_CURRENT, DEBUG_TRACE)
+                        self.spectrum_output = SpectrumOutput(self.util, self.meter_config_volumio, CurDir)
+                        self.spectrum_output.start()
         
         # Volume fade-in
         meter.set_volume(0.0)
