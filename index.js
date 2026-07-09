@@ -180,6 +180,9 @@ peppyScreensaver.prototype.onStart = function() {
             self.config.set('remoteServerPort', parseInt(peppy_config.current['remote.server.port'], 10) || 5580);
             self.config.set('remoteDiscoveryPort', parseInt(peppy_config.current['remote.discovery.port'], 10) || 5579);
             self.config.set('remoteSpectrumPort', parseInt(peppy_config.current['remote.spectrum.port'], 10) || 5581);
+            if (peppy_config.current['remote.spectrum.always'] !== undefined) {
+                self.config.set('remoteSpectrumAlways', peppy_config.current['remote.spectrum.always'] === 'true');
+            }
         }
     }
 
@@ -1193,6 +1196,15 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 remoteSpectrumPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.spectrum.port'], 10) || 5581) : 5581;
             }
             C('remoteSpectrumPort').value = remoteSpectrumPort;
+
+            // always stream spectrum bins when host meter has no spectrum
+            var remoteSpectrumAlways = self.config.get('remoteSpectrumAlways');
+            if (remoteSpectrumAlways === undefined) {
+                remoteSpectrumAlways = peppy_config && peppy_config.current
+                    ? peppy_config.current['remote.spectrum.always'] === 'true'
+                    : false;
+            }
+            C('remoteSpectrumAlways').value = !!remoteSpectrumAlways;
             
             // config sync interval
             var configSyncInterval = self.config.get('configSyncInterval');
@@ -2145,6 +2157,12 @@ peppyScreensaver.prototype.saveRemoteConf = function (confData) {
       self.config.set('remoteSpectrumPort', remoteSpectrumPort);
       noChanges = false;
   }
+
+  var remoteSpectrumAlways = !!confData.remoteSpectrumAlways;
+  if (self.config.get('remoteSpectrumAlways') !== remoteSpectrumAlways) {
+      self.config.set('remoteSpectrumAlways', remoteSpectrumAlways);
+      noChanges = false;
+  }
   
   var configSyncInterval = self.minmax('config_sync_interval', confData.configSyncInterval, [1, 60, 1]);
   if (self.config.get('configSyncInterval') !== configSyncInterval) {
@@ -2169,6 +2187,10 @@ peppyScreensaver.prototype.saveRemoteConf = function (confData) {
     }
     if (peppy_config.current['remote.spectrum.port'] != remoteSpectrumPort) {
         peppy_config.current['remote.spectrum.port'] = remoteSpectrumPort;
+    }
+    var remoteSpectrumAlwaysStr = remoteSpectrumAlways ? 'true' : 'false';
+    if (peppy_config.current['remote.spectrum.always'] != remoteSpectrumAlwaysStr) {
+        peppy_config.current['remote.spectrum.always'] = remoteSpectrumAlwaysStr;
     }
     if (peppy_config.current['remote.config.sync.interval'] != configSyncInterval) {
         peppy_config.current['remote.config.sync.interval'] = configSyncInterval;

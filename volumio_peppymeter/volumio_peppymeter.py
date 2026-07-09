@@ -95,7 +95,7 @@ from volumio_configfileparser import (
     FONT_STYLE_B, FONT_STYLE_R, FONT_STYLE_L,
     METER_BKP, RANDOM_TITLE, SPECTRUM, SPECTRUM_SIZE,
     REMOTE_SERVER_ENABLED, REMOTE_SERVER_MODE, REMOTE_SERVER_PORT, REMOTE_DISCOVERY_PORT,
-    REMOTE_SPECTRUM_PORT
+    REMOTE_SPECTRUM_PORT, REMOTE_SPECTRUM_ALWAYS
 )
 
 # Indicator configuration constants - import with fallback for backward compatibility
@@ -1404,7 +1404,8 @@ class NetworkSpectrumServer:
 
     server_local mutual exclusion (FIFO is single-reader — dual readers flicker):
     - Local SpectrumOutput alive → injected only; network must release_pipe() first.
-    - No local spectrum consumer → network acquire_pipe() and stream for remotes.
+    - No local spectrum consumer + remote.spectrum.always → network acquire_pipe().
+    - No local spectrum consumer + always off (default) → no pipe, no spectrum TX.
     Never open the pipe while SpectrumOutput is reading it (see c06ac59).
     
     Packet format (variable size, little-endian):
@@ -3811,9 +3812,12 @@ class CallBack:
         if self.spectrum_output is not None:
             self.spectrum_output.stop_thread()
             self.spectrum_output = None
-            # Local consumer gone: network may own the FIFO for remotes (server_local).
-            if self.spectrum_server is not None:
+            # Local consumer gone: optionally hand FIFO to network (remote.spectrum.always).
+            if (self.spectrum_server is not None and
+                    self.meter_config_volumio.get(REMOTE_SPECTRUM_ALWAYS, False)):
                 self.spectrum_server.acquire_pipe()
+            elif self.spectrum_server is not None:
+                self.spectrum_server.release_pipe()
             
         if hasattr(self, 'FadeIn'):
             del self.FadeIn
@@ -4379,11 +4383,15 @@ def start_display_output(pm, callback, meter_config_volumio, volumio_host='local
         """Feed spectrum UDP with exclusive FIFO ownership (server_local).
 
         Local SpectrumOutput or spectrum-as-meter owns the pipe → inject only.
-        Otherwise network acquires the pipe so remotes still get live bins.
+        If remote.spectrum.always is on and there is no local consumer, network
+        acquires the pipe so remotes still get live bins. When always is off
+        (default), skip TX unless the host is injecting — synced meters.
         Never open the pipe while a local consumer is reading it (c06ac59).
         """
         if not spectrum_server or not spectrum_server.enabled:
             return
+
+        always_stream = bool(meter_config_volumio.get(REMOTE_SPECTRUM_ALWAYS, False))
 
         # Host overlay spectrum owns the FIFO
         if callback.spectrum_output is not None:
@@ -4404,9 +4412,13 @@ def start_display_output(pm, callback, meter_config_volumio, volumio_host='local
             spectrum_server.broadcast()
             return
 
-        # No local consumer — network owns the FIFO for remotes
-        spectrum_server.acquire_pipe()
-        spectrum_server.broadcast()
+        # No local consumer
+        if always_stream:
+            spectrum_server.acquire_pipe()
+            spectrum_server.broadcast()
+        else:
+            # Synced-meters mode: do not take the FIFO; clear any prior pipe/inject state
+            spectrum_server.release_pipe()
 
     # -------------------------------------------------------------------------
     # Resolve active meter name

@@ -345,6 +345,9 @@ REMOTE_SERVER_MODE = "remote.server.mode"           # 'server', 'server_local'
 REMOTE_SERVER_PORT = "remote.server.port"           # UDP port for level data (default 5580)
 REMOTE_DISCOVERY_PORT = "remote.discovery.port"     # UDP port for discovery (default 5579)
 REMOTE_SPECTRUM_PORT = "remote.spectrum.port"       # UDP port for spectrum data (default 5581)
+# When true (server_local): network may own /tmp/myfifosa if host has no SpectrumOutput.
+# When false (default): spectrum UDP only when host injects bins (synced meters).
+REMOTE_SPECTRUM_ALWAYS = "remote.spectrum.always"
 REMOTE_CONFIG_SYNC_INTERVAL = "remote.config.sync.interval"  # Config check interval in seconds (default 1)
 
 class Volumio_ConfigFileParser(object):
@@ -506,6 +509,10 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio[REMOTE_SPECTRUM_PORT] = c.getint(CURRENT, REMOTE_SPECTRUM_PORT)
         except:
             self.meter_config_volumio[REMOTE_SPECTRUM_PORT] = 5581
+        try:
+            self.meter_config_volumio[REMOTE_SPECTRUM_ALWAYS] = c.getboolean(CURRENT, REMOTE_SPECTRUM_ALWAYS)
+        except:
+            self.meter_config_volumio[REMOTE_SPECTRUM_ALWAYS] = False
         try:
             self.meter_config_volumio[REMOTE_CONFIG_SYNC_INTERVAL] = c.getint(CURRENT, REMOTE_CONFIG_SYNC_INTERVAL)
         except:

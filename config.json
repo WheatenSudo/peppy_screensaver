@@ -71,6 +71,10 @@
     "value": 5581,
     "type": "number"
   },
+  "remoteSpectrumAlways": {
+    "value": false,
+    "type": "boolean"
+  },
   "fanartEnabled": {
     "value": false,
     "type": "boolean"

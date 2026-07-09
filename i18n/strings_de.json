@@ -287,6 +287,8 @@
     "REMOTE_SERVER_PORT_DOC":"UDP-Port zum Streamen von Audio-Pegeldaten an Remote-Anzeigen.<br /><br /><b>Standard: 5580</b><br /><br />Ändern, wenn dieser Port mit anderen Diensten kollidiert.",
     "REMOTE_SPECTRUM_PORT":"Spektrum-Daten-Port",
     "REMOTE_SPECTRUM_PORT_DOC":"UDP-Port zum Streamen von Spektrumanalysator-Daten an Remote-Anzeigen.<br /><br /><b>Standard: 5581</b><br /><br />Ändern, wenn dieser Port mit anderen Diensten kollidiert.",
+    "REMOTE_SPECTRUM_ALWAYS":"Spektrum-Bins immer streamen",
+    "REMOTE_SPECTRUM_ALWAYS_DOC":"Wenn der Host-Meter kein Spektrum hat, trotzdem die Spektrum-FIFO lesen und Bins an Remotes senden (Modus Server + Lokal).<br /><br /><b>Aus (Standard):</b> Spektrum-UDP folgt nur dem Host-Meter. Hat die Host-Skin kein Spektrum, erhalten Remotes keine Bins — ideal, wenn Host und Remote synchron bleiben.<br /><b>Ein:</b> Remotes können ein Live-Spektrum zeigen, auch wenn der Host-Meter keines hat (z. B. Zufall/Liste oder andere lokale Templates). Exklusive FIFO-Übergabe, damit die Host-Anzeige nicht flackert.<br /><br />Wirkt nicht im Modus Nur Server (Headless), dort wird Spektrum immer gestreamt.",
     "CONFIG_SYNC_INTERVAL":"Konfigurationssync-Intervall (Sekunden)",
     "CONFIG_SYNC_INTERVAL_DOC":"Wie oft auf Konfigurationsänderungen geprüft und Remote-Clients benachrichtigt werden sollen.<br /><br /><b>Standard: 1 Sekunde</b><br /><br />Niedrigere Werte bedeuten, dass Remote-Clients Änderungen schneller erkennen. Bereich: 1-60 Sekunden.",
     "BACKUP_CONF":"Sicherung und Wiederherstellung",

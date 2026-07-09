@@ -928,6 +928,7 @@
                                       "remoteDiscoveryPort",
                                       "remoteServerPort",
                                       "remoteSpectrumPort",
+                                      "remoteSpectrumAlways",
                                       "configSyncInterval"
                                       ]
                               },
@@ -995,6 +996,14 @@
                                              {"max": 65535}
                                            ],
                              "value": 5581
+                            },
+                            {
+                             "id": "remoteSpectrumAlways",
+                             "element": "switch",
+                             "visibleIf": {"field": "remoteServerEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.REMOTE_SPECTRUM_ALWAYS_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.REMOTE_SPECTRUM_ALWAYS",
+                             "value": false
                             },
                             {
                              "id": "configSyncInterval",

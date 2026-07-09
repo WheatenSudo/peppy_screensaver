@@ -287,6 +287,8 @@
     "REMOTE_SERVER_PORT_DOC":"UDP port for streaming audio level data to remote displays.<br /><br /><b>Default: 5580</b><br /><br />Change if this port conflicts with other services.",
     "REMOTE_SPECTRUM_PORT":"Spectrum data port",
     "REMOTE_SPECTRUM_PORT_DOC":"UDP port for streaming spectrum analyzer data to remote displays.<br /><br /><b>Default: 5581</b><br /><br />Change if this port conflicts with other services.",
+    "REMOTE_SPECTRUM_ALWAYS":"Always stream spectrum bins",
+    "REMOTE_SPECTRUM_ALWAYS_DOC":"When the host meter has no spectrum, still read the spectrum FIFO and send bins to remotes (Server + Local mode).<br /><br /><b>Off (default):</b> Spectrum UDP follows the host meter only. If the host skin has no spectrum, remotes get no bins — best when host and remote meters stay in sync.<br /><b>On:</b> Remotes can show a live spectrum even when the host meter has none (e.g. random/list or different local templates). Uses exclusive FIFO handoff so the host display does not flicker.<br /><br />Has no effect in Server Only (headless) mode, which always streams spectrum.",
     "CONFIG_SYNC_INTERVAL":"Config sync interval (seconds)",
     "CONFIG_SYNC_INTERVAL_DOC":"How often to check for config changes and notify remote clients.<br /><br /><b>Default: 1 second</b><br /><br />Lower values mean remote clients detect changes faster. Range: 1-60 seconds.",
     "BACKUP_CONF":"Backup and Restore",
