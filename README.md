@@ -489,6 +489,7 @@ spool.adaptive = true
 
 The reel graphics should be PNG files with transparency. The center point
 defines the rotation axis and should be the visual center of the reel hub.
+Album-folder sources (e.g. `cdart.png`) are scaled to the theme reel size.
 
 Reel rotation direction can be set per-meter in meters.txt (`reel.direction = cw` or `ccw`),
 or globally via plugin settings (Rotation Settings > Reel Rotation Direction).
