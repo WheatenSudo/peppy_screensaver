@@ -1723,10 +1723,25 @@ class BasicHandler:
                 
                 file_path = os.path.dirname(__file__)
                 local_icons = {'tidal', 'cd', 'qobuz', 'dab', 'fm', 'radio'}
-                if fmt in local_icons:
-                    icon_path = os.path.join(file_path, 'format-icons', f"{fmt}.svg")
-                else:
-                    icon_path = f"/volumio/http/www3/app/assets-common/format-icons/{fmt}.svg"
+                # Skin override first: <meter>/format-icons/{fmt}.png|.svg (PNG keeps colours)
+                icon_path = None
+                try:
+                    _skin_dir = os.path.join(
+                        self.config.get(BASE_PATH),
+                        self.config.get(SCREEN_INFO)[METER_FOLDER],
+                        'format-icons')
+                    for _ext in ('.png', '.svg'):
+                        _cand = os.path.join(_skin_dir, fmt + _ext)
+                        if os.path.isfile(_cand):
+                            icon_path = _cand
+                            break
+                except Exception:
+                    icon_path = None
+                if not icon_path:
+                    if fmt in local_icons:
+                        icon_path = os.path.join(file_path, 'format-icons', f"{fmt}.svg")
+                    else:
+                        icon_path = f"/volumio/http/www3/app/assets-common/format-icons/{fmt}.svg"
                 
                 if not os.path.exists(icon_path):
                     # Render text fallback
@@ -1738,19 +1753,16 @@ class BasicHandler:
                 else:
                     try:
                         img = None
-                        # Prefer cairosvg: rasterizes at exact target dimensions,
-                        # consistent across platforms (Linux/Windows/Mac).
-                        # pg.image.load() uses SDL_image nanosvg which produces
-                        # platform-dependent default raster sizes for the same SVG.
-                        if CAIROSVG_AVAILABLE and PIL_AVAILABLE:
+                        is_svg = icon_path.lower().endswith('.svg')
+                        # Prefer cairosvg for SVG: exact target dimensions, cross-platform.
+                        if is_svg and CAIROSVG_AVAILABLE and PIL_AVAILABLE:
                             png_bytes = cairosvg.svg2png(url=icon_path,
                                                           output_width=self.type_rect.width,
                                                           output_height=self.type_rect.height)
                             pil_img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
                             img = pg.image.fromstring(pil_img.tobytes(), pil_img.size, "RGBA")
                             img = img.convert_alpha()
-                        elif pg.version.ver.startswith("2"):
-                            # Fallback: Pygame 2 native SVG (platform-dependent size)
+                        elif is_svg and pg.version.ver.startswith("2"):
                             img = pg.image.load(icon_path)
                             w, h = img.get_width(), img.get_height()
                             sc = min(self.type_rect.width / float(w), self.type_rect.height / float(h))
@@ -1760,8 +1772,21 @@ class BasicHandler:
                             except Exception:
                                 img = pg.transform.scale(img, new_size)
                             img = img.convert_alpha()
+                        elif not is_svg:
+                            # Skin PNG — preserve authored colours (no set_color tint)
+                            img = pg.image.load(icon_path).convert_alpha()
+                            w, h = img.get_width(), img.get_height()
+                            if w > 0 and h > 0:
+                                sc = min(self.type_rect.width / float(w),
+                                         self.type_rect.height / float(h))
+                                new_size = (max(1, int(w * sc)), max(1, int(h * sc)))
+                                try:
+                                    img = pg.transform.smoothscale(img, new_size)
+                                except Exception:
+                                    img = pg.transform.scale(img, new_size)
                         if img:
-                            set_color(img, pg.Color(self.type_color[0], self.type_color[1], self.type_color[2]))
+                            if is_svg:
+                                set_color(img, pg.Color(self.type_color[0], self.type_color[1], self.type_color[2]))
                             dx = self.type_rect.x + (self.type_rect.width - img.get_width()) // 2
                             dy = self.type_rect.y + (self.type_rect.height - img.get_height()) // 2
                             self.screen.blit(img, (dx, dy))
