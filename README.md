@@ -477,10 +477,10 @@ spool.adaptive = true
 
 | Option | Description |
 |--------|-------------|
-| `reel.left.filename` | PNG file for left reel graphic |
+| `reel.left.filename` | Left reel image. Single filename = theme only; `cdart.png,reel_left.png` = album-folder file then theme fallback (same forms as `vinyl.filename`) |
 | `reel.left.pos` | Top-left position (x,y) for drawing |
 | `reel.left.center` | Center point (x,y) for rotation pivot |
-| `reel.right.filename` | PNG file for right reel graphic |
+| `reel.right.filename` | Right reel image (same forms as left) |
 | `reel.right.pos` | Top-left position (x,y) for drawing |
 | `reel.right.center` | Center point (x,y) for rotation pivot |
 | `reel.rotation.speed` | Rotation speed in RPM (default: 0) |

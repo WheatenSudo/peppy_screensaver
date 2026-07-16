@@ -15,9 +15,11 @@
 import os
 import tempfile
 import io
+import json
 import math
 import time
 import time as time_module
+import urllib.request
 import requests
 import pygame as pg
 
@@ -78,6 +80,36 @@ try:
     from volumio_folderimage import FolderImageRenderer
 except ImportError:
     FolderImageRenderer = None
+
+
+def _fetch_album_image_from_server(volumio_url, uri, filename):
+    """Fetch album-folder image via peppy_screensaver_vinyl (shared with turntable)."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(volumio_url or "http://localhost:3000")
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 3000
+        url = "http://%s:%d/api/v1/pluginEndpoint" % (host, port)
+        body = json.dumps({
+            "endpoint": "peppy_screensaver_vinyl",
+            "data": {"uri": uri, "filename": filename},
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json",
+                     "User-Agent": "PeppyScreensaver/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode())
+        if not data.get("success"):
+            return None
+        inner = data.get("data", {})
+        if inner.get("success") and inner.get("data"):
+            import base64
+            return base64.b64decode(inner["data"])
+        return None
+    except Exception:
+        return None
 
 try:
     from volumio_artistfanart import FanartSlideshowRenderer
@@ -767,6 +799,7 @@ class ReelRenderer:
         self._trace_component = name.replace("_", ".")  # "reel_left" -> "reel.left"
         
         self._original_surf = None
+        self._theme_size = None  # theme reel size; album sources are scaled to match
         self._rot_frames = None
         self._current_angle = 0.0
         self._loaded = False
@@ -779,6 +812,40 @@ class ReelRenderer:
         
         self._load_image()
     
+    def _rebuild_frames(self):
+        """Rebuild precomputed rotation frames from _original_surf."""
+        self._rot_frames = None
+        if USE_PRECOMPUTED_FRAMES and self.center and self.rotate_rpm > 0.0 and self._original_surf:
+            try:
+                self._rot_frames = [
+                    pg.transform.rotate(self._original_surf, -a)
+                    for a in range(0, 360, self.rotation_step)
+                ]
+            except Exception:
+                self._rot_frames = None
+
+    def _apply_source_surface(self, surf):
+        """Install a new reel surface (scaled to theme size when known)."""
+        try:
+            surf = surf.convert_alpha()
+        except Exception:
+            pass
+        if self._theme_size:
+            tw, th = self._theme_size
+            if surf.get_width() != tw or surf.get_height() != th:
+                try:
+                    surf = pg.transform.smoothscale(surf, (tw, th))
+                except Exception:
+                    surf = pg.transform.scale(surf, (tw, th))
+        elif not self._theme_size and surf:
+            self._theme_size = surf.get_size()
+        self._original_surf = surf
+        self._loaded = True
+        self._need_first_blit = True
+        self._needs_redraw = True
+        self._rebuild_frames()
+        return True
+
     def _load_image(self):
         """Load the reel PNG file and pre-compute rotation frames."""
         if not self.filename:
@@ -787,22 +854,35 @@ class ReelRenderer:
         try:
             img_path = os.path.join(self.base_path, self.meter_folder, self.filename)
             if os.path.exists(img_path):
-                self._original_surf = pg.image.load(img_path).convert_alpha()
-                self._loaded = True
-                self._need_first_blit = True
-                
-                if USE_PRECOMPUTED_FRAMES and self.center and self.rotate_rpm > 0.0:
-                    try:
-                        self._rot_frames = [
-                            pg.transform.rotate(self._original_surf, -a)
-                            for a in range(0, 360, self.rotation_step)
-                        ]
-                    except Exception:
-                        self._rot_frames = None
+                surf = pg.image.load(img_path).convert_alpha()
+                if not self._theme_size:
+                    self._theme_size = surf.get_size()
+                self._apply_source_surface(surf)
             else:
                 print(f"[ReelRenderer] File not found: {img_path}")
         except Exception as e:
             print(f"[ReelRenderer] Failed to load '{self.filename}': {e}")
+
+    def load_from_file(self, filepath):
+        """Load reel image from an absolute path (album-folder cdart etc.)."""
+        if not filepath or not os.path.isfile(filepath):
+            return False
+        try:
+            return self._apply_source_surface(pg.image.load(filepath))
+        except Exception as e:
+            print(f"[ReelRenderer] load_from_file failed: {e}")
+            return False
+
+    def load_from_bytes(self, img_bytes):
+        """Load reel image from bytes (remote fetch via peppy_screensaver_vinyl)."""
+        if not img_bytes:
+            return False
+        try:
+            buf = img_bytes if isinstance(img_bytes, io.BytesIO) else io.BytesIO(img_bytes)
+            return self._apply_source_surface(pg.image.load(buf))
+        except Exception as e:
+            print(f"[ReelRenderer] load_from_bytes failed: {e}")
+            return False
     
     def _update_angle(self, status, now_ticks, volatile=False):
         """Update rotation angle based on RPM, direction, and playback status."""
@@ -1359,6 +1439,13 @@ class CassetteHandler:
         # Create reel renderers
         self.reel_left = None
         self.reel_right = None
+        # Vinyl-like filename forms: single = theme only; "cdart.png,reel.png" = album then theme
+        self._reel_left_album_source = None
+        self._reel_left_theme = None
+        self._reel_right_album_source = None
+        self._reel_right_theme = None
+        self._last_reel_left_uri = None
+        self._last_reel_right_uri = None
         
         reel_left_file = mc_vol.get(REEL_LEFT_FILE)
         reel_left_pos = mc_vol.get(REEL_LEFT_POS)
@@ -1367,6 +1454,15 @@ class CassetteHandler:
         reel_right_pos = mc_vol.get(REEL_RIGHT_POS)
         reel_right_center = mc_vol.get(REEL_RIGHT_CENTER)
         reel_rpm = as_float(mc_vol.get(REEL_ROTATION_SPEED), 0.0)
+
+        def _parse_reel_filename(raw):
+            """Return (album_source_or_None, theme_filename)."""
+            if not raw:
+                return None, None
+            parts = [p.strip() for p in str(raw).split(",")]
+            if len(parts) >= 2:
+                return (parts[0] or None), (parts[1] or parts[0])
+            return None, parts[0]
         
         rot_quality = self.meter_config_volumio.get(ROTATION_QUALITY, "medium")
         rot_custom_fps = self.meter_config_volumio.get(ROTATION_FPS, 8)
@@ -1396,10 +1492,11 @@ class CassetteHandler:
         log_debug(f"  Computed: spool_left_mult={spool_left_mult}, spool_right_mult={spool_right_mult}", "verbose")
         
         if reel_left_file and reel_left_center:
+            self._reel_left_album_source, self._reel_left_theme = _parse_reel_filename(reel_left_file)
             self.reel_left = ReelRenderer(
                 base_path=self.config.get(BASE_PATH),
                 meter_folder=self.config.get(SCREEN_INFO)[METER_FOLDER],
-                filename=reel_left_file,
+                filename=self._reel_left_theme or reel_left_file,
                 pos=reel_left_pos,
                 center=reel_left_center,
                 rotate_rpm=reel_rpm,
@@ -1417,10 +1514,11 @@ class CassetteHandler:
             log_debug(f"  ReelRenderer LEFT visual_rect: x={visual_rect.x}, y={visual_rect.y}, w={visual_rect.width}, h={visual_rect.height}" if visual_rect else "  ReelRenderer LEFT visual_rect: None", "verbose")
         
         if reel_right_file and reel_right_center:
+            self._reel_right_album_source, self._reel_right_theme = _parse_reel_filename(reel_right_file)
             self.reel_right = ReelRenderer(
                 base_path=self.config.get(BASE_PATH),
                 meter_folder=self.config.get(SCREEN_INFO)[METER_FOLDER],
-                filename=reel_right_file,
+                filename=self._reel_right_theme or reel_right_file,
                 pos=reel_right_pos,
                 center=reel_right_center,
                 rotate_rpm=reel_rpm,
@@ -1816,6 +1914,43 @@ class CassetteHandler:
         volatile = meta.get("volatile", False)
         is_playing = status == "play"
         duration = meta.get("duration", 0) or 0
+        uri = meta.get("uri", "") or ""
+        volumio_url = meta.get("_volumio_url", "http://localhost:3000")
+
+        # Reel album-folder source (vinyl-like): cdart.png,theme.png on URI change
+        def _update_reel_album(renderer, album_source, theme_fallback, last_attr):
+            if not renderer or not theme_fallback:
+                return
+            if uri == getattr(self, last_attr, None):
+                return
+            if not album_source:
+                setattr(self, last_attr, uri)
+                return
+            loaded = False
+            if uri:
+                is_local = "localhost" in volumio_url or "127.0.0.1" in volumio_url
+                if is_local:
+                    san = uri.replace("music-library/", "").replace("mnt/", "")
+                    base = "/mnt/" + san if not san.startswith("/") else "/mnt" + san
+                    album_folder = os.path.dirname(base)
+                    cand = os.path.join(album_folder, album_source)
+                    if os.path.isfile(cand):
+                        loaded = renderer.load_from_file(cand)
+                else:
+                    img_bytes = _fetch_album_image_from_server(volumio_url, uri, album_source)
+                    if img_bytes:
+                        loaded = renderer.load_from_bytes(img_bytes)
+            if not loaded:
+                renderer.filename = theme_fallback
+                renderer._load_image()
+            setattr(self, last_attr, uri)
+
+        _update_reel_album(
+            self.reel_left, getattr(self, "_reel_left_album_source", None),
+            getattr(self, "_reel_left_theme", None), "_last_reel_left_uri")
+        _update_reel_album(
+            self.reel_right, getattr(self, "_reel_right_album_source", None),
+            getattr(self, "_reel_right_theme", None), "_last_reel_right_uri")
         
         # Get queue mode from config
         queue_mode = self.meter_config_volumio.get(QUEUE_MODE, "track")
