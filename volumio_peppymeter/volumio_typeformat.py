@@ -139,16 +139,91 @@ def resolve_type_mode(mc_vol, global_config):
     return DEFAULT_TYPE_MODE
 
 
+def is_real_type_dimension(dim):
+    """
+    True when playinfo.type.dimension is a usable box.
+
+    False if omitted, non-positive, or the legacy 1,1 "no box" placeholder.
+    """
+    if dim is None:
+        return False
+    try:
+        w, h = int(dim[0]), int(dim[1])
+    except (TypeError, ValueError, IndexError):
+        return False
+    if w <= 0 or h <= 0:
+        return False
+    if w == 1 and h == 1:
+        return False
+    return True
+
+
+def resolve_type_rect(pos, dim, mode, font=None):
+    """
+    Build the type clear/blit Rect, or None if type should not draw.
+
+    icon / both: require a real dimension (missing or 1,1 -> no draw).
+    text: real dimension keeps a fixed box (caller centers). Omitted or 1,1
+    synthesizes a provisional rect at pos from font metrics (like time
+    fields); callers update it from the rendered surface on draw.
+    """
+    if not pos:
+        return None
+    mode = (mode or DEFAULT_TYPE_MODE).strip().lower()
+    if mode not in VALID_TYPE_MODES:
+        mode = DEFAULT_TYPE_MODE
+
+    try:
+        x, y = int(pos[0]), int(pos[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+
+    if is_real_type_dimension(dim):
+        return pg.Rect(x, y, int(dim[0]), int(dim[1]))
+
+    if mode != "text":
+        return None
+
+    if font is not None:
+        try:
+            w = font.size("WEBRADIO")[0] + 4
+            h = font.get_linesize()
+            return pg.Rect(x, y, max(1, int(w)), max(1, int(h)))
+        except Exception:
+            pass
+    return pg.Rect(x, y, 1, 1)
+
+
+def type_clear_rect_for_surface(pos, surf):
+    """Dirty/clear Rect at pos matching surface size (text without box)."""
+    if not pos or surf is None:
+        return None
+    try:
+        return pg.Rect(int(pos[0]), int(pos[1]), surf.get_width(), surf.get_height())
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 def default_type_fontsize(samplerate_style_size, type_rect_height):
-    """Font size when playinfo.type.fontsize is unset."""
+    """
+    Font size when playinfo.type.fontsize is unset.
+
+    With a real type box height: min(style size, max(10, 0.45 * height)).
+    Without (None / non-positive / height 1 from 1,1): samplerate style size.
+    """
     try:
         style_size = int(samplerate_style_size)
     except (TypeError, ValueError):
         style_size = 20
+    style_size = max(1, style_size)
+    if type_rect_height is None:
+        return style_size
     try:
         rect_h = int(type_rect_height)
     except (TypeError, ValueError):
-        rect_h = 20
+        return style_size
+    if rect_h <= 1:
+        return style_size
     return min(style_size, max(10, int(0.45 * rect_h)))
 
 
@@ -291,8 +366,12 @@ def build_type_surface(
       text  - label only
       both  - icon left, text right, 3px gap, text clipped
 
-    Returns (surface, fmt_key) or (None, fmt_key). Caller centers surface in type_rect
-    (for both, surface matches type_rect size so centering is a no-op).
+    Returns (surface, fmt_key) or (None, fmt_key).
+
+    Callers with a real type box center the surface in type_rect (for both,
+    surface matches type_rect size so centering is a no-op). Text mode without
+    a real box blits at type pos (top-left) and sizes the clear rect from the
+    surface.
     """
     fmt_key = normalize_format_key(track_type)
     if not fmt_key or not type_rect:
@@ -303,12 +382,13 @@ def build_type_surface(
         mode = DEFAULT_TYPE_MODE
 
     label = display_label_for_key(fmt_key)
-    tw, th = int(type_rect.width), int(type_rect.height)
-    if tw <= 0 or th <= 0:
-        return None, fmt_key
 
     if mode == "text":
         return _render_label(font, label, type_color), fmt_key
+
+    tw, th = int(type_rect.width), int(type_rect.height)
+    if tw <= 0 or th <= 0:
+        return None, fmt_key
 
     icon_path = resolve_icon_path(fmt_key, skin_icons_dir, plugin_dir)
 
@@ -359,6 +439,9 @@ def make_type_font(global_config, mc_vol, sample_style, type_rect_height):
     """
     Build a pygame Font for type text using the samplerate style face and
     playinfo.type.fontsize (or the default heuristic when unset).
+
+    Pass type_rect_height=None when there is no real type dimension so the
+    default size is the samplerate style size (not 0.45 * 1).
     """
     from volumio_configfileparser import (
         FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD, FONT_ITALIC,

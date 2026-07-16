@@ -120,6 +120,7 @@ try:
     from volumio_typeformat import (
         resolve_type_mode, make_type_font, build_type_surface,
         skin_format_icons_dir, normalize_format_key,
+        is_real_type_dimension, resolve_type_rect, type_clear_rect_for_surface,
     )
 except ImportError:
     resolve_type_mode = None
@@ -127,6 +128,9 @@ except ImportError:
     build_type_surface = None
     skin_format_icons_dir = None
     normalize_format_key = None
+    is_real_type_dimension = None
+    resolve_type_rect = None
+    type_clear_rect_for_surface = None
 
 # Reel configuration constants
 try:
@@ -1110,6 +1114,7 @@ class CassetteHandler:
         self.type_pos = None
         self.type_rect = None
         self.type_mode = "icon"
+        self.type_has_real_dim = False
         self.type_font = None
         self.time_rect = None
         self.sample_rect = None
@@ -1659,15 +1664,25 @@ class CassetteHandler:
         pg.display.update()
         
         # LAYER COMPOSITION: Create rects for clearing time/type/sample areas
-        # Type rect + display mode / type font (icon / text / both)
-        self.type_rect = pg.Rect(self.type_pos[0], self.type_pos[1], type_dim[0], type_dim[1]) if (self.type_pos and type_dim) else None
-        if resolve_type_mode and make_type_font:
+        # Type: mode -> font (height from real dim only) -> type_rect
+        if resolve_type_mode and make_type_font and resolve_type_rect:
             self.type_mode = resolve_type_mode(mc_vol, self.meter_config_volumio)
-            _type_h = self.type_rect.height if self.type_rect else 20
+            self.type_has_real_dim = bool(
+                is_real_type_dimension and is_real_type_dimension(type_dim)
+            )
+            _type_h = int(type_dim[1]) if self.type_has_real_dim else None
             self.type_font = make_type_font(self.meter_config_volumio, mc_vol, sample_style, _type_h)
+            self.type_rect = resolve_type_rect(
+                self.type_pos, type_dim, self.type_mode, self.type_font
+            )
         else:
             self.type_mode = "icon"
+            self.type_has_real_dim = bool(self.type_pos and type_dim)
             self.type_font = self.sample_font
+            self.type_rect = (
+                pg.Rect(self.type_pos[0], self.type_pos[1], type_dim[0], type_dim[1])
+                if (self.type_pos and type_dim) else None
+            )
         log_debug(f"  playinfo.type.mode = {self.type_mode}", "verbose")
         
         # Time rect (for clearing from bgr_surface; use effective time font per field)
@@ -2436,6 +2451,10 @@ class CassetteHandler:
 
             if format_changed:
                 self.last_track_type = fmt
+                # Clear previous blit area so longer->shorter labels do not ghost
+                if self.bgr_surface and self.type_rect:
+                    self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
+                    dirty_rects.append(self.type_rect.copy())
                 self.last_format_icon_surf = None  # Clear cache
                 skin_icons = skin_format_icons_dir(self.config, BASE_PATH, SCREEN_INFO, METER_FOLDER) if skin_format_icons_dir else None
                 plugin_dir = os.path.dirname(__file__)
@@ -2452,13 +2471,21 @@ class CassetteHandler:
 
             # Blit cached surface when format changed OR when force_flag (reel overlap)
             if (format_changed or force_flag) and self.last_format_icon_surf:
-                if self.bgr_surface:
+                if not format_changed and self.bgr_surface and self.type_rect:
                     self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
 
-                dx = self.type_rect.x + (self.type_rect.width - self.last_format_icon_surf.get_width()) // 2
-                dy = self.type_rect.y + (self.type_rect.height - self.last_format_icon_surf.get_height()) // 2
-                self.screen.blit(self.last_format_icon_surf, (dx, dy))
-                dirty_rects.append(self.type_rect.copy())
+                if self.type_has_real_dim:
+                    dx = self.type_rect.x + (self.type_rect.width - self.last_format_icon_surf.get_width()) // 2
+                    dy = self.type_rect.y + (self.type_rect.height - self.last_format_icon_surf.get_height()) // 2
+                    self.screen.blit(self.last_format_icon_surf, (dx, dy))
+                else:
+                    self.screen.blit(self.last_format_icon_surf, self.type_pos)
+                    if type_clear_rect_for_surface:
+                        self.type_rect = type_clear_rect_for_surface(
+                            self.type_pos, self.last_format_icon_surf
+                        )
+                if self.type_rect:
+                    dirty_rects.append(self.type_rect.copy())
         
         # Sample rate
         if self.sample_pos and self.sample_box:
