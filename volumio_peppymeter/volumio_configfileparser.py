@@ -176,6 +176,11 @@ VOLUME_FILL_COLOR = "volume.fill.color"   # optional fill/tail behind the image 
 VOLUME_FILL_WIDTH = "volume.fill.width"   # fill thickness (cross-axis); defaults to the knob size
 VOLUME_FILL_OFFSET = "volume.fill.offset" # nudge the fill from the knob-centred position (dx,dy)
 VOLUME_FILL_RADIUS = "volume.fill.radius" # rounded fill ends (border radius px); 0 = square
+# Progress fill (parity with volume.fill.* for image-based progress sliders)
+PROGRESS_FILL_COLOR = "progress.fill.color"
+PROGRESS_FILL_WIDTH = "progress.fill.width"
+PROGRESS_FILL_OFFSET = "progress.fill.offset"
+PROGRESS_FILL_RADIUS = "progress.fill.radius"
 
 # Mute indicator
 MUTE_POS = "mute.pos"
@@ -1225,6 +1230,25 @@ class Volumio_ConfigFileParser(object):
             d[PROGRESS_SLIDER_TIP_OFFSET] = (int(spl[0]), int(spl[1]))
         except:
             d[PROGRESS_SLIDER_TIP_OFFSET] = (0, 0)
+        # Optional fill/tail behind the image progress tip (parity with volume.fill.*)
+        try:
+            spl = config_file.get(section, PROGRESS_FILL_COLOR).split(',')
+            d[PROGRESS_FILL_COLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))
+        except:
+            d[PROGRESS_FILL_COLOR] = None  # off by default (existing skins unchanged)
+        try:
+            d[PROGRESS_FILL_WIDTH] = config_file.getint(section, PROGRESS_FILL_WIDTH)
+        except:
+            d[PROGRESS_FILL_WIDTH] = None  # default: tip cross-axis size
+        try:
+            spl = config_file.get(section, PROGRESS_FILL_OFFSET).split(',')
+            d[PROGRESS_FILL_OFFSET] = (int(spl[0]), int(spl[1]))
+        except:
+            d[PROGRESS_FILL_OFFSET] = (0, 0)
+        try:
+            d[PROGRESS_FILL_RADIUS] = max(0, config_file.getint(section, PROGRESS_FILL_RADIUS))
+        except:
+            d[PROGRESS_FILL_RADIUS] = 0  # square ends by default
         try:
             d[PROGRESS_KNOB_IMAGE] = config_file.get(section, PROGRESS_KNOB_IMAGE)
         except:
