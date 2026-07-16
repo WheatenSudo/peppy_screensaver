@@ -201,6 +201,7 @@
                                       "fanartOrder",
                                       "fanartTransition",
                                       "fanartTransitionMs",
+                                      "fanartUnlimitedImages",
                                       "useSystemFonts"
                                       ]
                               },
@@ -338,6 +339,14 @@
                                              {"max": 3000}
                                            ],
                              "value": 600
+                            },
+                            {
+                             "id": "fanartUnlimitedImages",
+                             "element": "switch",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_UNLIMITED_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_UNLIMITED_LABEL",
+                             "value": false
                             },
                             {
                              "id": "clearFanartCache",

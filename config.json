@@ -102,5 +102,9 @@
   "fanartOrder": {
     "value": "sequential",
     "type": "string"
+  },
+  "fanartUnlimitedImages": {
+    "value": false,
+    "type": "boolean"
   }
 }

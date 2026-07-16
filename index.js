@@ -822,6 +822,7 @@ peppyScreensaver.prototype.getUIConfig = function() {
             C('fanartTransition').value.value = fanartTransition;
             C('fanartTransition').value.label = self.commandRouter.getI18nString(fanartTransitionLabels[fanartTransition] || fanartTransitionLabels.none);
             C('fanartTransitionMs').value = parseInt(self.config.get('fanartTransitionMs'), 10) || 600;
+            C('fanartUnlimitedImages').value = self.config.get('fanartUnlimitedImages') === true;
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
@@ -2873,7 +2874,8 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
       return { success: false, error: 'no fanart' };
     }
 
-    if (picked.length > FANART_MAX_IMAGES) {
+    // Default: cap at FANART_MAX_IMAGES. Unlimited mode skips the cap (crash risk).
+    if (self.config.get('fanartUnlimitedImages') !== true && picked.length > FANART_MAX_IMAGES) {
       picked = picked.slice(0, FANART_MAX_IMAGES);
     }
 
@@ -2955,19 +2957,27 @@ peppyScreensaver.prototype.clearFanartCache = function () {
   return defer.promise;
 };
 
+/** Clear cached fanart images (keep mbid.json). Returns true on success. */
+peppyScreensaver.prototype._clearFanartImageCache = function () {
+  var self = this;
+  if (!fs.existsSync(FanartCacheDir)) {
+    return true;
+  }
+  fs.readdirSync(FanartCacheDir).forEach(function (f) {
+    if (f === 'mbid.json') { return; }
+    fs.removeSync(path.join(FanartCacheDir, f));
+  });
+  galleryLog(self.logger, 'basic', 'fanart cache cleared (mbid.json preserved)');
+  return true;
+};
+
 peppyScreensaver.prototype.clearFanartCacheConfirmed = function () {
   var self = this;
   var defer = libQ.defer();
   var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
   try {
-    if (fs.existsSync(FanartCacheDir)) {
-      fs.readdirSync(FanartCacheDir).forEach(function (f) {
-        if (f === 'mbid.json') { return; }
-        fs.removeSync(path.join(FanartCacheDir, f));
-      });
-    }
+    self._clearFanartImageCache();
     if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
-    galleryLog(self.logger, 'basic', 'fanart cache cleared (mbid.json preserved)');
     self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_DONE'));
   } catch (e) {
     self.logger.error(id + 'clearFanartCacheConfirmed: ' + e.message);
@@ -3562,6 +3572,10 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
       ? data.fanartOrder.value
       : (data && data.fanartOrder);
     if (['sequential', 'random'].indexOf(order) === -1) { order = 'sequential'; }
+    var unlimitedWanted = (data && (data.fanartUnlimitedImages === true || data.fanartUnlimitedImages === 'true'));
+    var wasUnlimited = self.config.get('fanartUnlimitedImages') === true;
+    var pendingUnlimitedEnable = (unlimitedWanted && !wasUnlimited);
+    var unlimitedDisabled = (!unlimitedWanted && wasUnlimited);
 
     self.config.set('fanartEnabled', enabled);
     self.config.set('fanartKeyMode', keyMode);
@@ -3570,6 +3584,15 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     self.config.set('fanartOrder', order);
     self.config.set('fanartTransition', transition);
     self.config.set('fanartTransitionMs', transitionMs);
+    // Off→On for unlimited is gated by openModal confirm; do not set true here.
+    if (unlimitedDisabled) {
+      self.config.set('fanartUnlimitedImages', false);
+      try { self._clearFanartImageCache(); } catch (eClearOff) {
+        self.logger.error(id + 'saveThemesArtwork: clear cache on unlimited Off: ' + eClearOff.message);
+      }
+    } else if (!pendingUnlimitedEnable && unlimitedWanted) {
+      self.config.set('fanartUnlimitedImages', true);
+    }
 
     // --- Theme + font settings that live in config.txt / config.json (moved here
     //     from the old global section): keep-themes flag, active theme folder
@@ -3653,6 +3676,37 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     if (folderChanged) { try { self.updateUIConfig(); } catch (eUi) {} }
 
     self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEMES_ARTWORK_SAVED'));
+
+    // Gate unlimited fanart: Off→On requires explicit crash-risk confirm.
+    if (pendingUnlimitedEnable) {
+      self.commandRouter.broadcastMessage('openModal', {
+        title: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_CONFIRM_TITLE'),
+        message: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_CONFIRM_MSG'),
+        size: 'lg',
+        buttons: [
+          {
+            name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+            class: 'btn btn-default',
+            emit: 'callMethod',
+            payload: {
+              endpoint: 'user_interface/peppy_screensaver',
+              method: 'cancelFanartUnlimitedImages',
+              data: {}
+            }
+          },
+          {
+            name: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_CONFIRM_BTN'),
+            class: 'btn btn-warning',
+            emit: 'callMethod',
+            payload: {
+              endpoint: 'user_interface/peppy_screensaver',
+              method: 'enableFanartUnlimitedImagesConfirmed',
+              data: {}
+            }
+          }
+        ]
+      });
+    }
   } catch (e) {
     self.logger.error(id + 'saveThemesArtwork: ' + e.message);
   }
@@ -3665,6 +3719,42 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     self.removeThemeFolder(data);
   }
 
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.enableFanartUnlimitedImagesConfirmed = function () {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  try {
+    self.config.set('fanartUnlimitedImages', true);
+    self._clearFanartImageCache();
+    try { self.updateConfigVersion(); } catch (eVer) {}
+    if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
+    try { self.updateUIConfig(); } catch (eUi) {}
+    self.commandRouter.pushToastMessage('success', pluginName,
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_ENABLED'));
+    galleryLog(self.logger, 'basic', 'fanartUnlimitedImages enabled (no image cap; crash risk accepted)');
+  } catch (e) {
+    self.logger.error(id + 'enableFanartUnlimitedImagesConfirmed: ' + e.message);
+    self.commandRouter.pushToastMessage('error', pluginName, e.message);
+  }
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.cancelFanartUnlimitedImages = function () {
+  var self = this;
+  var defer = libQ.defer();
+  try {
+    // Ensure switch stays Off in UI (config was never set On).
+    self.config.set('fanartUnlimitedImages', false);
+    self.updateUIConfig();
+  } catch (e) {
+    self.logger.error(id + 'cancelFanartUnlimitedImages: ' + e.message);
+  }
+  try { self.commandRouter.broadcastMessage('closeModals', ''); } catch (eClose) {}
   defer.resolve();
   return defer.promise;
 };
