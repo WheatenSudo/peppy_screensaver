@@ -89,7 +89,8 @@
                                       "position_x",
                                       "position_y",
                                       "mouseEnabled",
-                                      "displayOutput"
+                                      "displayOutput",
+                                      "formatTypeMode"
                                       ]
                               },
                 "content": [
@@ -177,6 +178,18 @@
                                     "label": "Display=1"
                                  }
                                ]
+                            },
+                            {
+                             "id": "formatTypeMode",
+                             "element": "select",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_MODE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_MODE",
+                             "value": {"value": "icon", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_ICON"},
+                             "options": [
+                                          {"value": "icon", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_ICON"},
+                                          {"value": "text", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_TEXT"},
+                                          {"value": "both", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_BOTH"}
+                                        ]
                             }
                 ]
             },

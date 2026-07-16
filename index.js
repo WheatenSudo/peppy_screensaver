@@ -65,7 +65,7 @@ const REMOTE_MIN_API_VERSION = 1;
 // never drift from what actually ships; these regexes are the only trust boundary.
 const REMOTE_HANDLER_NAME_REGEX = /^(volumio_[A-Za-z0-9_]+\.py|screensaverspectrum\.py)$/;
 const REMOTE_FONT_NAME_REGEX = /^[A-Za-z0-9 ._\-]+\.(ttf|otf)$/;
-const REMOTE_CAPABILITIES = ['fanart', 'folderlayer', 'italic', 'samplerate_color', 'progress_markers', 'spectrum', 'remote'];
+const REMOTE_CAPABILITIES = ['fanart', 'folderlayer', 'italic', 'samplerate_color', 'progress_markers', 'spectrum', 'remote', 'type_display_mode'];
 const THEME_PREVIEW_FILES = ['preview.png', 'preview.jpg', 'preview.jpeg', 'art.png', 'art.jpg'];
 const THEME_GALLERY_COLS = 3;
 const THEME_GALLERY_IMG_WIDTH = 200;
@@ -903,6 +903,19 @@ peppyScreensaver.prototype.getUIConfig = function() {
             C('displayOutput').value.label = 'Display=' + self.config.get('displayOutput');
             C('doNotDeleteThemes').value = self.config.get('doNotDeleteThemes') === true;
 
+            // format / type display mode (config.txt [current] playinfo.type.mode)
+            var formatTypeMode = peppy_config.current['playinfo.type.mode'] || 'icon';
+            if (formatTypeMode !== 'icon' && formatTypeMode !== 'text' && formatTypeMode !== 'both') {
+                formatTypeMode = 'icon';
+            }
+            var formatTypeOptions = C('formatTypeMode').options;
+            for (var i = 0; i < formatTypeOptions.length; i++) {
+                if (formatTypeOptions[i].value === formatTypeMode) {
+                    C('formatTypeMode').value = formatTypeOptions[i];
+                    break;
+                }
+            }
+
             // use system fonts (from config.txt, default false = use PeppyFont)
             var useSystemFonts = false;
             try {
@@ -1466,6 +1479,16 @@ peppyScreensaver.prototype.saveDisplayConf = function (confData) {
         self.config.set('displayOutput', confData.displayOutput.value);
         var DispOut = parseInt(confData.displayOutput.value,10);
         self.switch_DisplayPort(DispOut);
+        noChanges = false;
+    }
+
+    // write format / type display mode (like scrolling.mode: config.txt [current] only)
+    var formatTypeMode = (confData.formatTypeMode && confData.formatTypeMode.value) || 'icon';
+    if (formatTypeMode !== 'icon' && formatTypeMode !== 'text' && formatTypeMode !== 'both') {
+        formatTypeMode = 'icon';
+    }
+    if (peppy_config.current['playinfo.type.mode'] != formatTypeMode) {
+        peppy_config.current['playinfo.type.mode'] = formatTypeMode;
         noChanges = false;
     }
 
