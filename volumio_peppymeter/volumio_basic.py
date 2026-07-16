@@ -80,6 +80,18 @@ try:
 except ImportError:
     FanartSlideshowRenderer = None
 
+try:
+    from volumio_typeformat import (
+        resolve_type_mode, make_type_font, build_type_surface,
+        skin_format_icons_dir, normalize_format_key,
+    )
+except ImportError:
+    resolve_type_mode = None
+    make_type_font = None
+    build_type_surface = None
+    skin_format_icons_dir = None
+    normalize_format_key = None
+
 # Indicator configuration constants
 try:
     from volumio_configfileparser import (
@@ -764,6 +776,8 @@ class BasicHandler:
         self.sample_pos = None
         self.type_pos = None
         self.type_rect = None
+        self.type_mode = "icon"
+        self.type_font = None
         self.sample_box = 0
         self.center_flag = False
         self.text_align = "left"
@@ -782,6 +796,7 @@ class BasicHandler:
         self.fontI = None
         self.fontDigi = None
         self.sample_font = None
+        self.type_font = None
         
         # Colors
         self.font_color = (255, 255, 255)
@@ -1171,8 +1186,16 @@ class BasicHandler:
         self.meter.run()
         pg.display.update()
         
-        # Type rect
+        # Type rect + display mode / type font (icon / text / both)
         self.type_rect = pg.Rect(self.type_pos[0], self.type_pos[1], type_dim[0], type_dim[1]) if (self.type_pos and type_dim) else None
+        if resolve_type_mode and make_type_font:
+            self.type_mode = resolve_type_mode(mc_vol, self.global_config)
+            _type_h = self.type_rect.height if self.type_rect else 20
+            self.type_font = make_type_font(self.global_config, mc_vol, sample_style, _type_h)
+        else:
+            self.type_mode = "icon"
+            self.type_font = self.sample_font
+        log_debug(f"  playinfo.type.mode = {self.type_mode}", "verbose")
         
         # Load foreground
         self.fgr_surf = None
@@ -1671,129 +1694,36 @@ class BasicHandler:
                 surf = self.font_time_total.render(total_str, True, self.time_total_color)
                 self.screen.blit(surf, self.time_total_pos)
 
-        # LAYER: Sample rate / format icon
-        # Format icon
-        if self.type_rect:
-            fmt = (track_type or "").strip().lower().replace(" ", "_")
-            if fmt == "dsf":
-                fmt = "dsd"
-            
-            # Strip signal strength indicators and other suffixes
-            # DAB sends "DAB ●◦◦◦◦" -> "dab_●◦◦◦◦", need just "dab"
-            # FM sends "FM ◦◦◦◦◦" -> "fm_◦◦◦◦◦", need just "fm"
-            fmt_clean = re.sub(r'[^a-z0-9_].*', '', fmt)  # Keep only alphanumeric prefix
-            if fmt_clean:
-                fmt = fmt_clean
-            
-            # Normalize common trackType variants to icon names
-            format_map = {
-                'dab_radio': 'dab',
-                'dab_': 'dab',
-                'dab': 'dab',
-                'rtlsdr': 'dab',
-                'rtlsdr_radio': 'dab',
-                'fm_radio': 'fm',
-                'fm_': 'fm',
-                'fm': 'fm',
-                'webradio': 'radio',
-                'web_radio': 'radio',
-                'internet_radio': 'radio',
-                'tidal_connect': 'tidal',
-                'qobuz_connect': 'qobuz',
-                'spotify': 'spotify',
-                'spotify_connect': 'spotify',
-                'airplay': 'airplay',
-                'bluetooth': 'bluetooth',
-                'upnp': 'upnp',
-                'dlna': 'upnp',
-            }
-            fmt_before = fmt
-            fmt = format_map.get(fmt, fmt)
-            
-            # TRACE: Log format icon processing
+        # LAYER: Sample rate / format icon (icon / text / both via volumio_typeformat)
+        if self.type_rect and build_type_surface:
+            skin_icons = skin_format_icons_dir(self.config, BASE_PATH, SCREEN_INFO, METER_FOLDER) if skin_format_icons_dir else None
+            plugin_dir = os.path.dirname(__file__)
+            fmt = normalize_format_key(track_type) if normalize_format_key else (track_type or "")
+
             if DEBUG_LEVEL_CURRENT == "trace" and DEBUG_TRACE.get("metadata", False):
-                log_debug(f"[FormatIcon] INPUT: track_type='{track_type}', fmt_normalized='{fmt_before}', fmt_mapped='{fmt}'", "trace", "metadata")
-            
+                log_debug(f"[FormatIcon] INPUT: track_type='{track_type}', fmt='{fmt}', mode='{self.type_mode}'", "trace", "metadata")
+
             if fmt != self.last_track_type:
                 self.last_track_type = fmt
-                
-                # LAYER COMPOSITION: Clear from bgr_surface
+
                 if self.bgr_surface and self.type_rect:
                     self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
-                
-                file_path = os.path.dirname(__file__)
-                local_icons = {'tidal', 'cd', 'qobuz', 'dab', 'fm', 'radio'}
-                # Skin override first: <meter>/format-icons/{fmt}.png|.svg (PNG keeps colours)
-                icon_path = None
-                try:
-                    _skin_dir = os.path.join(
-                        self.config.get(BASE_PATH),
-                        self.config.get(SCREEN_INFO)[METER_FOLDER],
-                        'format-icons')
-                    for _ext in ('.png', '.svg'):
-                        _cand = os.path.join(_skin_dir, fmt + _ext)
-                        if os.path.isfile(_cand):
-                            icon_path = _cand
-                            break
-                except Exception:
-                    icon_path = None
-                if not icon_path:
-                    if fmt in local_icons:
-                        icon_path = os.path.join(file_path, 'format-icons', f"{fmt}.svg")
-                    else:
-                        icon_path = f"/volumio/http/www3/app/assets-common/format-icons/{fmt}.svg"
-                
-                if not os.path.exists(icon_path):
-                    # Render text fallback
-                    if self.sample_font:
-                        txt_surf = self.sample_font.render(fmt[:4], True, self.type_color)
-                        self.screen.blit(txt_surf, (self.type_rect.x, self.type_rect.y))
-                        self.last_format_icon_surf = txt_surf
-                    dirty_rects.append(self.type_rect.copy())
-                else:
-                    try:
-                        img = None
-                        is_svg = icon_path.lower().endswith('.svg')
-                        # Prefer cairosvg for SVG: exact target dimensions, cross-platform.
-                        if is_svg and CAIROSVG_AVAILABLE and PIL_AVAILABLE:
-                            png_bytes = cairosvg.svg2png(url=icon_path,
-                                                          output_width=self.type_rect.width,
-                                                          output_height=self.type_rect.height)
-                            pil_img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-                            img = pg.image.fromstring(pil_img.tobytes(), pil_img.size, "RGBA")
-                            img = img.convert_alpha()
-                        elif is_svg and pg.version.ver.startswith("2"):
-                            img = pg.image.load(icon_path)
-                            w, h = img.get_width(), img.get_height()
-                            sc = min(self.type_rect.width / float(w), self.type_rect.height / float(h))
-                            new_size = (max(1, int(w * sc)), max(1, int(h * sc)))
-                            try:
-                                img = pg.transform.smoothscale(img, new_size)
-                            except Exception:
-                                img = pg.transform.scale(img, new_size)
-                            img = img.convert_alpha()
-                        elif not is_svg:
-                            # Skin PNG — preserve authored colours (no set_color tint)
-                            img = pg.image.load(icon_path).convert_alpha()
-                            w, h = img.get_width(), img.get_height()
-                            if w > 0 and h > 0:
-                                sc = min(self.type_rect.width / float(w),
-                                         self.type_rect.height / float(h))
-                                new_size = (max(1, int(w * sc)), max(1, int(h * sc)))
-                                try:
-                                    img = pg.transform.smoothscale(img, new_size)
-                                except Exception:
-                                    img = pg.transform.scale(img, new_size)
-                        if img:
-                            if is_svg:
-                                set_color(img, pg.Color(self.type_color[0], self.type_color[1], self.type_color[2]))
-                            dx = self.type_rect.x + (self.type_rect.width - img.get_width()) // 2
-                            dy = self.type_rect.y + (self.type_rect.height - img.get_height()) // 2
-                            self.screen.blit(img, (dx, dy))
-                            self.last_format_icon_surf = img
-                        dirty_rects.append(self.type_rect.copy())
-                    except Exception as e:
-                        print(f"[BasicHandler] FormatIcon error: {e}")
+
+                surf, _key = build_type_surface(
+                    track_type,
+                    self.type_mode,
+                    self.type_rect,
+                    self.type_color,
+                    self.type_font or self.sample_font,
+                    skin_icons,
+                    plugin_dir,
+                )
+                if surf is not None:
+                    dx = self.type_rect.x + (self.type_rect.width - surf.get_width()) // 2
+                    dy = self.type_rect.y + (self.type_rect.height - surf.get_height()) // 2
+                    self.screen.blit(surf, (dx, dy))
+                    self.last_format_icon_surf = surf
+                dirty_rects.append(self.type_rect.copy())
         
         # Sample rate
         if self.sample_pos and self.sample_box:

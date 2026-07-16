@@ -311,6 +311,8 @@ PLAY_TICKER_END_SPACES = "playinfo.ticker.end_spaces"
 PLAY_TYPE_POS = "playinfo.type.pos"
 PLAY_TYPE_COLOR = "playinfo.type.color"
 PLAY_TYPE_DIM = "playinfo.type.dimension"
+PLAY_TYPE_MODE = "playinfo.type.mode"
+PLAY_TYPE_FONTSIZE = "playinfo.type.fontsize"
 PLAY_SAMPLE_POS = "playinfo.samplerate.pos"
 PLAY_SAMPLE_STYLE = "PLAY_SAMPLE_STYLE"
 PLAY_SAMPLE_MAX = "playinfo.samplerate.maxwidth"
@@ -546,6 +548,12 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio["scrolling.speed.album"] = c.getint(CURRENT, "scrolling.speed.album")
         except:
             self.meter_config_volumio["scrolling.speed.album"] = 40
+
+        # Format/type display mode (global UI default; skin meters.txt can override)
+        try:
+            self.meter_config_volumio[PLAY_TYPE_MODE] = c.get(CURRENT, PLAY_TYPE_MODE)
+        except:
+            self.meter_config_volumio[PLAY_TYPE_MODE] = "icon"
 
         try:
             self.meter_config_volumio[FONT_PATH] = c.get(CURRENT, FONT_PATH)
@@ -1527,6 +1535,15 @@ class Volumio_ConfigFileParser(object):
             d[PLAY_TYPE_DIM] =  (int(spl[0]), int(spl[1]))
         except:
             d[PLAY_TYPE_DIM] = None
+        try:
+            mode = config_file.get(section, PLAY_TYPE_MODE).strip().lower()
+            d[PLAY_TYPE_MODE] = mode if mode in ("icon", "text", "both") else None
+        except:
+            d[PLAY_TYPE_MODE] = None
+        try:
+            d[PLAY_TYPE_FONTSIZE] = config_file.getint(section, PLAY_TYPE_FONTSIZE)
+        except:
+            d[PLAY_TYPE_FONTSIZE] = None
         try:
             spl = config_file.get(section, PLAY_SAMPLE_POS).split(',')		
             d[PLAY_SAMPLE_POS] = (int(spl[0]), int(spl[1]))
