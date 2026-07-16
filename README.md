@@ -133,6 +133,7 @@ Browse and manage meter themes, and configure the artist fanart slideshow. A sin
 | Fanart order | Sequential (filename order) or Random; current image kept across random meter skin changes |
 | Fanart transition | Slideshow transition: None / Fade in-out / Merge (crossfade), background-area fanart only |
 | Transition duration | Fanart transition length in ms (50–3000, default 600) |
+| Unlimited fanart images per artist | Off (default) keeps a safe **30 images/artist** cap. On removes the cap after a confirmation that **this can crash** Peppy Screensaver / Volumio (RAM/CPU, especially on Pi). Host setting; also affects remotes that load fanart from the host |
 
 The fanart slideshow appears only when this master switch is **on** *and* the active theme declares a fanart area (`fanart.pos` / `fanart.dimension` in `meters.txt`). Images are resolved from a cascade: your personal artist-art folder (`/data/albumart/personal/artist/<Artist>/`) → an `<Artist>/fanart/` folder in your music library/NAS (at the artist level, next to the album folders) → fanart.tv (via MusicBrainz) → Volumio's artist art proxy. Your own `<Artist>/fanart/` images take priority over fanart.tv. See the [wiki: Plugin Settings](https://github.com/foonerd/peppy_screensaver/wiki/Plugin-Settings#themes--artwork) and [meters.txt reference](https://github.com/foonerd/peppy_screensaver/wiki/meters.txt-Reference#artist-fanart-slideshow-artist-photos--backgrounds).
 
