@@ -107,6 +107,7 @@ FOLDERLAYER_POS = "folderlayer.pos"
 FOLDERLAYER_DIM = "folderlayer.dimension"
 FOLDERLAYER_SCALE = "folderlayer.scale"
 FOLDERLAYER_ZORDER = "folderlayer.zorder"
+FOLDERLAYER_BORDER = "folderlayer.border"  # optional px border (like albumart.border)
 FOLDERLAYERS = "folderlayers"   # parsed list of folder-image layer dicts (multi-layer)
 FOLDERLAYER_MAX = 5             # max indexed folderlayer.N.* layers (plus the legacy one)
 FOLDERLAYER_DEFAULT_FILES = ["back.png", "Back.png", "back.jpg", "Back.jpg", "logo.png", "Logo.png"]
@@ -685,9 +686,13 @@ class Volumio_ConfigFileParser(object):
                 _fl_zorder = config_file.get(section, _pfx + ".zorder").strip().lower()
             except:
                 _fl_zorder = "overlay"  # 'overlay' (above meters) or 'background' (behind meters)
+            try:
+                _fl_border = config_file.getint(section, _pfx + ".border")
+            except:
+                _fl_border = 0  # no border by default (existing skins unchanged)
             _folderlayers.append({
                 "files": _fl_files, "pos": _fl_pos, "dim": _fl_dim,
-                "scale": _fl_scale, "zorder": _fl_zorder,
+                "scale": _fl_scale, "zorder": _fl_zorder, "border": _fl_border,
             })
         d[FOLDERLAYERS] = _folderlayers
 

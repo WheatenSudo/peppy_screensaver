@@ -2278,6 +2278,8 @@ class TurntableHandler:
                         dim=fl_dim,
                         scale_mode=fl_cfg.get("scale") or "fit",
                         filenames=fl_cfg.get("files"),
+                        border_width=fl_cfg.get("border") or 0,
+                        border_color=self.font_color,
                     ),
                     "rect": pg.Rect(fl_pos[0], fl_pos[1], fl_dim[0], fl_dim[1]),
                     "zorder": (fl_cfg.get("zorder") or "overlay"),
