@@ -118,16 +118,18 @@ except ImportError:
 
 try:
     from volumio_typeformat import (
-        resolve_type_mode, make_type_font, build_type_surface,
-        skin_format_icons_dir, normalize_format_key,
+        resolve_type_mode, resolve_type_align, make_type_font, build_type_surface,
+        skin_format_icons_dir, normalize_format_key, align_blit_pos,
         is_real_type_dimension, resolve_type_rect, type_clear_rect_for_surface,
     )
 except ImportError:
     resolve_type_mode = None
+    resolve_type_align = None
     make_type_font = None
     build_type_surface = None
     skin_format_icons_dir = None
     normalize_format_key = None
+    align_blit_pos = None
     is_real_type_dimension = None
     resolve_type_rect = None
     type_clear_rect_for_surface = None
@@ -1114,6 +1116,7 @@ class CassetteHandler:
         self.type_pos = None
         self.type_rect = None
         self.type_mode = "icon"
+        self.type_align = "center"
         self.type_has_real_dim = False
         self.type_font = None
         self.time_rect = None
@@ -1664,9 +1667,10 @@ class CassetteHandler:
         pg.display.update()
         
         # LAYER COMPOSITION: Create rects for clearing time/type/sample areas
-        # Type: mode -> font (height from real dim only) -> type_rect
+        # Type: mode -> align -> font (height from real dim only) -> type_rect
         if resolve_type_mode and make_type_font and resolve_type_rect:
             self.type_mode = resolve_type_mode(mc_vol, self.meter_config_volumio)
+            self.type_align = resolve_type_align(mc_vol) if resolve_type_align else "center"
             self.type_has_real_dim = bool(
                 is_real_type_dimension and is_real_type_dimension(type_dim)
             )
@@ -1677,6 +1681,7 @@ class CassetteHandler:
             )
         else:
             self.type_mode = "icon"
+            self.type_align = "center"
             self.type_has_real_dim = bool(self.type_pos and type_dim)
             self.type_font = self.sample_font
             self.type_rect = (
@@ -1684,6 +1689,7 @@ class CassetteHandler:
                 if (self.type_pos and type_dim) else None
             )
         log_debug(f"  playinfo.type.mode = {self.type_mode}", "verbose")
+        log_debug(f"  playinfo.type.align = {self.type_align}", "verbose")
         
         # Time rect (for clearing from bgr_surface; use effective time font per field)
         if self.time_pos and self.font_time_remaining:
@@ -2466,6 +2472,7 @@ class CassetteHandler:
                     self.type_font or self.sample_font,
                     skin_icons,
                     plugin_dir,
+                    clip_to_box=self.type_has_real_dim,
                 )
                 self.last_format_icon_surf = surf
 
@@ -2475,9 +2482,14 @@ class CassetteHandler:
                     self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
 
                 if self.type_has_real_dim:
-                    dx = self.type_rect.x + (self.type_rect.width - self.last_format_icon_surf.get_width()) // 2
-                    dy = self.type_rect.y + (self.type_rect.height - self.last_format_icon_surf.get_height()) // 2
-                    self.screen.blit(self.last_format_icon_surf, (dx, dy))
+                    pos = (
+                        align_blit_pos(
+                            self.type_rect, self.last_format_icon_surf, self.type_align
+                        )
+                        if align_blit_pos else None
+                    )
+                    if pos is not None:
+                        self.screen.blit(self.last_format_icon_surf, pos)
                 else:
                     self.screen.blit(self.last_format_icon_surf, self.type_pos)
                     if type_clear_rect_for_surface:

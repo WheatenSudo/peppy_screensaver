@@ -313,6 +313,7 @@ PLAY_TYPE_COLOR = "playinfo.type.color"
 PLAY_TYPE_DIM = "playinfo.type.dimension"
 PLAY_TYPE_MODE = "playinfo.type.mode"
 PLAY_TYPE_FONTSIZE = "playinfo.type.fontsize"
+PLAY_TYPE_ALIGN = "playinfo.type.align"
 PLAY_SAMPLE_POS = "playinfo.samplerate.pos"
 PLAY_SAMPLE_STYLE = "PLAY_SAMPLE_STYLE"
 PLAY_SAMPLE_MAX = "playinfo.samplerate.maxwidth"
@@ -1544,6 +1545,16 @@ class Volumio_ConfigFileParser(object):
             d[PLAY_TYPE_FONTSIZE] = config_file.getint(section, PLAY_TYPE_FONTSIZE)
         except:
             d[PLAY_TYPE_FONTSIZE] = None
+        # playinfo.type.align = left|center|right. Skin-only; does not inherit
+        # playinfo.align / playinfo.center. Default (None) means center in handlers.
+        try:
+            _type_align = config_file.get(section, PLAY_TYPE_ALIGN).strip().lower()
+            if _type_align in ("left", "center", "right"):
+                d[PLAY_TYPE_ALIGN] = _type_align
+            else:
+                d[PLAY_TYPE_ALIGN] = None
+        except:
+            d[PLAY_TYPE_ALIGN] = None
         try:
             spl = config_file.get(section, PLAY_SAMPLE_POS).split(',')		
             d[PLAY_SAMPLE_POS] = (int(spl[0]), int(spl[1]))

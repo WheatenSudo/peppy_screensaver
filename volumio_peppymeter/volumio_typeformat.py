@@ -24,6 +24,8 @@ except Exception:
 
 VALID_TYPE_MODES = ("icon", "text", "both")
 DEFAULT_TYPE_MODE = "icon"
+VALID_TYPE_ALIGNS = ("left", "center", "right")
+DEFAULT_TYPE_ALIGN = "center"
 BOTH_GAP_PX = 3
 VOLUMIO_STOCK_ICONS = "/volumio/http/www3/app/assets-common/format-icons"
 
@@ -137,6 +139,52 @@ def resolve_type_mode(mc_vol, global_config):
         if mode in VALID_TYPE_MODES:
             return mode
     return DEFAULT_TYPE_MODE
+
+
+def resolve_type_align(mc_vol):
+    """
+    meters.txt playinfo.type.align = left|center|right.
+
+    Default center (wiki / current boxed behaviour). Does not inherit
+    playinfo.align or playinfo.center. Meaningful only with a real type box;
+    callers ignore align when type_has_real_dim is false.
+    """
+    mc_vol = mc_vol or {}
+    raw = mc_vol.get("playinfo.type.align")
+    if raw is None:
+        return DEFAULT_TYPE_ALIGN
+    align = str(raw).strip().lower()
+    if align in VALID_TYPE_ALIGNS:
+        return align
+    return DEFAULT_TYPE_ALIGN
+
+
+def align_blit_pos(type_rect, surf, align=DEFAULT_TYPE_ALIGN):
+    """
+    Blit origin for a surface already clipped to fit inside type_rect.
+
+    left:   dx = type_rect.x
+    center: dx = type_rect.x + (W - sw) // 2
+    right:  dx = type_rect.x + max(0, W - sw)
+    dy always vertically centered in the box.
+    """
+    if type_rect is None or surf is None:
+        return None
+    sw = surf.get_width()
+    sh = surf.get_height()
+    w = int(type_rect.width)
+    h = int(type_rect.height)
+    align = (align or DEFAULT_TYPE_ALIGN).strip().lower()
+    if align not in VALID_TYPE_ALIGNS:
+        align = DEFAULT_TYPE_ALIGN
+    if align == "left":
+        dx = type_rect.x
+    elif align == "right":
+        dx = type_rect.x + max(0, w - sw)
+    else:
+        dx = type_rect.x + (w - sw) // 2
+    dy = type_rect.y + (h - sh) // 2
+    return (dx, dy)
 
 
 def is_real_type_dimension(dim):
@@ -349,6 +397,20 @@ def _clip_text_surface(txt_surf, max_w):
     return clipped
 
 
+def _clip_surface_to_box(surf, max_w, max_h):
+    """Clip surface to max_w x max_h so paint stays inside the clear box."""
+    if surf is None or max_w <= 0 or max_h <= 0:
+        return None
+    surf = _clip_text_surface(surf, max_w)
+    if surf is None:
+        return None
+    if surf.get_height() <= max_h:
+        return surf
+    clipped = pg.Surface((surf.get_width(), max_h), pg.SRCALPHA)
+    clipped.blit(surf, (0, 0))
+    return clipped
+
+
 def build_type_surface(
     track_type,
     mode,
@@ -357,6 +419,7 @@ def build_type_surface(
     font,
     skin_icons_dir,
     plugin_dir,
+    clip_to_box=False,
 ):
     """
     Build a surface for the type area.
@@ -368,10 +431,11 @@ def build_type_surface(
 
     Returns (surface, fmt_key) or (None, fmt_key).
 
-    Callers with a real type box center the surface in type_rect (for both,
-    surface matches type_rect size so centering is a no-op). Text mode without
-    a real box blits at type pos (top-left) and sizes the clear rect from the
-    surface.
+    When clip_to_box is True (real type dimension), text / missing-icon text
+    is clipped to type_rect so paint ⊆ clear. Callers then use
+    align_blit_pos() inside the box. Mode both already builds a full-box
+    surface. Text mode without a real box blits at type pos (top-left) and
+    sizes the clear rect from the surface; leave clip_to_box False there.
     """
     fmt_key = normalize_format_key(track_type)
     if not fmt_key or not type_rect:
@@ -382,11 +446,14 @@ def build_type_surface(
         mode = DEFAULT_TYPE_MODE
 
     label = display_label_for_key(fmt_key)
+    tw, th = int(type_rect.width), int(type_rect.height)
 
     if mode == "text":
-        return _render_label(font, label, type_color), fmt_key
+        txt = _render_label(font, label, type_color)
+        if clip_to_box and txt is not None:
+            txt = _clip_surface_to_box(txt, tw, th)
+        return txt, fmt_key
 
-    tw, th = int(type_rect.width), int(type_rect.height)
     if tw <= 0 or th <= 0:
         return None, fmt_key
 
@@ -396,8 +463,11 @@ def build_type_surface(
         img = _load_icon_surface(icon_path, tw, th, type_color)
         if img is not None:
             return img, fmt_key
-        # Missing icon: full label, sized by type font (caller centers)
-        return _render_label(font, label, type_color), fmt_key
+        # Missing icon: full label, sized by type font (caller aligns in box)
+        txt = _render_label(font, label, type_color)
+        if clip_to_box and txt is not None:
+            txt = _clip_surface_to_box(txt, tw, th)
+        return txt, fmt_key
 
     # mode == "both": icon left, text right inside type_rect
     icon_box = max(1, min(tw, th))
@@ -407,6 +477,8 @@ def build_type_surface(
     if img is None and txt is None:
         return None, fmt_key
     if img is None:
+        if clip_to_box and txt is not None:
+            txt = _clip_surface_to_box(txt, tw, th)
         return txt, fmt_key
     if txt is None:
         return img, fmt_key
@@ -418,8 +490,12 @@ def build_type_surface(
     max_text_w = tw - text_x
     txt = _clip_text_surface(txt, max_text_w)
     if txt is not None and max_text_w > 0:
-        ty = (th - txt.get_height()) // 2
-        out.blit(txt, (text_x, ty))
+        # Keep text inside box height (same paint ⊆ clear invariant)
+        if txt.get_height() > th:
+            txt = _clip_surface_to_box(txt, max_text_w, th)
+        if txt is not None:
+            ty = (th - txt.get_height()) // 2
+            out.blit(txt, (text_x, ty))
     return out, fmt_key
 
 
