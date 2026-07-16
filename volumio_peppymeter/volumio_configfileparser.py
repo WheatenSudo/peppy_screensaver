@@ -264,6 +264,7 @@ PROGRESS_HEAD_IMAGE = "progress.head.image"
 PROGRESS_HEAD_OFFSET = "progress.head.offset"
 
 PLAY_TXT_CENTER = "playinfo.text.center"
+PLAY_ALIGN = "playinfo.align"  # left|center|right; playinfo.center remains a legacy alias for center
 PLAY_TITLE_POS = "playinfo.title.pos"
 PLAY_TITLE_COLOR = "playinfo.title.color"
 PLAY_TITLE_MAX = "playinfo.title.maxwidth"
@@ -1376,6 +1377,16 @@ class Volumio_ConfigFileParser(object):
             d[PLAY_CENTER] = config_file.getboolean(section, PLAY_CENTER)
         except:
             d[PLAY_CENTER] = False
+        # playinfo.align = left|center|right. When unset, playinfo.center /
+        # playinfo.text.center remain the legacy way to request center.
+        try:
+            _align = config_file.get(section, PLAY_ALIGN).strip().lower()
+            if _align in ("left", "center", "right"):
+                d[PLAY_ALIGN] = _align
+            else:
+                d[PLAY_ALIGN] = None
+        except:
+            d[PLAY_ALIGN] = None
         try:
             d[PLAY_MAX] = config_file.getint(section, PLAY_MAX)
         except:

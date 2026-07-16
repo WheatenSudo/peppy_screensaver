@@ -51,7 +51,7 @@ from volumio_configfileparser import (
     FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD, FONT_ITALIC,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
-    PLAY_TXT_CENTER, PLAY_CENTER, PLAY_MAX,
+    PLAY_TXT_CENTER, PLAY_CENTER, PLAY_ALIGN, PLAY_MAX,
     SCROLLING_SPEED, SCROLLING_SPEED_ARTIST, SCROLLING_SPEED_TITLE, SCROLLING_SPEED_ALBUM,
     PLAY_TITLE_POS, PLAY_TITLE_COLOR, PLAY_TITLE_MAX, PLAY_TITLE_STYLE,
     PLAY_ARTIST_POS, PLAY_ARTIST_COLOR, PLAY_ARTIST_MAX, PLAY_ARTIST_STYLE,
@@ -365,12 +365,17 @@ class ScrollingLabel:
     
     def __init__(self, font, color, pos, box_width, center=False,
                  speed_px_per_sec=40, pause_ms=400, scroll_direction="default",
-                 loop_segment_pixels=None):
+                 loop_segment_pixels=None, align=None):
         self.font = font
         self.color = color
         self.pos = pos
         self.box_width = int(box_width or 0)
-        self.center = bool(center)
+        # align = left|center|right; legacy center=True maps to center
+        if align in ("left", "center", "right"):
+            self.align = align
+        else:
+            self.align = "center" if center else "left"
+        self.center = self.align == "center"  # kept for callers that check .center
         self.speed = float(speed_px_per_sec)
         self.pause_ms = int(pause_ms)
         sd = (scroll_direction or "default").lower()
@@ -486,11 +491,13 @@ class ScrollingLabel:
             elif self._backing and self._backing_rect:
                 surface.blit(self._backing, self._backing_rect.topleft)
             
-            if self.center and self.box_width > 0:
+            if self.align == "center" and self.box_width > 0:
                 left = box_rect.x + (self.box_width - self.text_w) // 2
-                surface.blit(self.surf, (left, box_rect.y))
+            elif self.align == "right" and self.box_width > 0:
+                left = box_rect.x + max(0, self.box_width - self.text_w)
             else:
-                surface.blit(self.surf, (box_rect.x, box_rect.y))
+                left = box_rect.x
+            surface.blit(self.surf, (left, box_rect.y))
             self._needs_redraw = False
             
             dirty = self._backing_rect.copy() if self._backing_rect else box_rect.copy()
@@ -1014,6 +1021,7 @@ class CassetteHandler:
         self.sample_rect = None
         self.sample_box = 0
         self.center_flag = False
+        self.text_align = "left"
         
         # Fonts
         self.fontL = None
@@ -1101,7 +1109,14 @@ class CassetteHandler:
         self._draw_static_assets(mc)
         
         # Positions and colors
-        self.center_flag = bool(mc_vol.get(PLAY_CENTER, mc_vol.get(PLAY_TXT_CENTER, False)))
+        _align = mc_vol.get(PLAY_ALIGN)
+        if _align in ("left", "center", "right"):
+            self.text_align = _align
+        elif bool(mc_vol.get(PLAY_CENTER, mc_vol.get(PLAY_TXT_CENTER, False))):
+            self.text_align = "center"
+        else:
+            self.text_align = "left"
+        self.center_flag = self.text_align == "center"
         global_max = as_int(mc_vol.get(PLAY_MAX), 0)
         
         # Scrolling speed logic based on mode (from global config)
@@ -1479,12 +1494,12 @@ class CassetteHandler:
             print(f"[CassetteHandler] Failed to create IndicatorRenderer: {e}")
         
         # Create scrollers (no backing capture needed - layer composition handles overlaps)
-        self.artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, center=self.center_flag, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if artist_pos else None
-        self.title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=self.center_flag, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if title_pos else None
-        self.album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, center=self.center_flag, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if album_pos else None
-        self.next_title_scroller = ScrollingLabel(self._font_for_style(next_title_style), next_title_color, next_title_pos, next_title_box, center=self.center_flag, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if next_title_pos else None
-        self.next_artist_scroller = ScrollingLabel(self._font_for_style(next_artist_style), next_artist_color, next_artist_pos, next_artist_box, center=self.center_flag, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if next_artist_pos else None
-        self.next_album_scroller = ScrollingLabel(self._font_for_style(next_album_style), next_album_color, next_album_pos, next_album_box, center=self.center_flag, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if next_album_pos else None
+        self.artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, align=self.text_align, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if artist_pos else None
+        self.title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, align=self.text_align, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if title_pos else None
+        self.album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, align=self.text_align, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if album_pos else None
+        self.next_title_scroller = ScrollingLabel(self._font_for_style(next_title_style), next_title_color, next_title_pos, next_title_box, align=self.text_align, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if next_title_pos else None
+        self.next_artist_scroller = ScrollingLabel(self._font_for_style(next_artist_style), next_artist_color, next_artist_pos, next_artist_box, align=self.text_align, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if next_artist_pos else None
+        self.next_album_scroller = ScrollingLabel(self._font_for_style(next_album_style), next_album_color, next_album_pos, next_album_box, align=self.text_align, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if next_album_pos else None
 
         ticker_speed = mc_vol.get(PLAY_TICKER_SPEED, scroll_speed_title) if ticker_enabled else 40
         ticker_direction = (mc_vol.get(PLAY_TICKER_DIRECTION) or "rtl").lower()
@@ -1495,7 +1510,7 @@ class CassetteHandler:
         self.ticker_separator = mc_vol.get(PLAY_TICKER_SEPARATOR) or " · "
         self.ticker_space_between = max(0, int(mc_vol.get(PLAY_TICKER_SPACE_BETWEEN, 0)))
         self.ticker_end_spaces = max(0, int(mc_vol.get(PLAY_TICKER_END_SPACES, 8)))
-        self.ticker_scroller = ScrollingLabel(ticker_font, ticker_color, ticker_pos, ticker_box, center=self.center_flag, speed_px_per_sec=ticker_speed, scroll_direction=ticker_direction, loop_segment_pixels=None) if (ticker_enabled and ticker_pos and ticker_box) else None
+        self.ticker_scroller = ScrollingLabel(ticker_font, ticker_color, ticker_pos, ticker_box, align=self.text_align, speed_px_per_sec=ticker_speed, scroll_direction=ticker_direction, loop_segment_pixels=None) if (ticker_enabled and ticker_pos and ticker_box) else None
         self.ticker_append_next = bool(mc_vol.get(PLAY_TICKER_APPEND_NEXT)) if ticker_enabled else False
 
         # LAYER COMPOSITION: Set background surface on scrollers for proper clearing
@@ -2374,8 +2389,10 @@ class CassetteHandler:
                 
                 self.last_sample_surf = self.sample_font.render(sample_text, True, self.sample_color)
                 
-                if self.center_flag and self.sample_box:
+                if self.text_align == "center" and self.sample_box:
                     sx = self.sample_pos[0] + (self.sample_box - self.last_sample_surf.get_width()) // 2
+                elif self.text_align == "right" and self.sample_box:
+                    sx = self.sample_pos[0] + max(0, self.sample_box - self.last_sample_surf.get_width())
                 else:
                     sx = self.sample_pos[0]
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
