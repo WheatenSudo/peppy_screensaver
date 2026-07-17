@@ -1068,9 +1068,12 @@ class SliderIndicator:
             return self.get_rect()
         
         # Procedural slider (fallback)
+        # Optional rounded ends via fill_radius (progress.fill.radius / volume.fill.radius);
+        # 0 = square (unchanged). pygame auto-clamps the radius to the drawn rectangle.
+        radius = self.fill_radius
         # Background
         if self.bg_color:
-            pg.draw.rect(screen, self.bg_color, (x, y, w, h))
+            pg.draw.rect(screen, self.bg_color, (x, y, w, h), border_radius=radius)
         
         # Foreground fill based on volume and orientation
         # Auto-detect orientation from dimensions if not explicitly horizontal
@@ -1080,12 +1083,12 @@ class SliderIndicator:
             # Vertical: fill from bottom to top
             fill_h = int((volume / 100.0) * h)
             if fill_h > 0:
-                pg.draw.rect(screen, self.color, (x, y + h - fill_h, w, fill_h))
+                pg.draw.rect(screen, self.color, (x, y + h - fill_h, w, fill_h), border_radius=radius)
         else:
             # Horizontal: fill from left to right
             fill_w = int((volume / 100.0) * w)
             if fill_w > 0:
-                pg.draw.rect(screen, self.color, (x, y, fill_w, h))
+                pg.draw.rect(screen, self.color, (x, y, fill_w, h), border_radius=radius)
         
         return pg.Rect(x, y, w, h)
     
