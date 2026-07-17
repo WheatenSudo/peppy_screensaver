@@ -1694,9 +1694,11 @@ class IndicatorRenderer:
                          repeatSingle, status, seek, duration
         :param dirty_rects: list to append dirty rects
         :param force: if True, redraw all indicators regardless of value change
-        :param skip_restore: if True, skip restore_backing calls (for BasicHandler
-                             where meters redraw every frame and procedural
-                             indicators self-clear)
+        :param skip_restore: if True, skip restore_backing for self-clearing
+                             procedural indicators (volume) in BasicHandler where
+                             meters redraw every frame. Icon/LED state indicators
+                             (mute, shuffle, repeat, playstate) always restore, since
+                             a transparent/shaped previous state cannot self-clear.
         """
         # Volume
         if self._volume:
@@ -1746,10 +1748,14 @@ class IndicatorRenderer:
                     _log_debug(f"[Mute] DECISION: render=True ({reason}), prev_state={self._prev_mute}", "trace", "mute")
             
             if will_render:
-                if force:
-                    self._mute.force_redraw()
-                if not skip_restore:
-                    self._mute.restore_backing(screen)
+                # Icon/LED state indicators cannot self-clear a transparent or shaped
+                # previous state, so always clear from the clean background before
+                # repainting - even when skip_restore is requested for self-clearing
+                # procedural indicators (BasicHandler). Force the repaint so a cleared
+                # area is never left blank when the raw flags changed but the resolved
+                # state index did not.
+                self._mute.force_redraw()
+                self._mute.restore_backing(screen)
                 rect = self._mute.render(screen, mute_state)
                 if rect:
                     dirty_rects.append(rect)
@@ -1781,10 +1787,9 @@ class IndicatorRenderer:
                     _log_debug(f"[Shuffle] DECISION: render=True ({reason})", "trace", "shuffle")
             
             if will_render:
-                if force:
-                    self._shuffle.force_redraw()
-                if not skip_restore:
-                    self._shuffle.restore_backing(screen)
+                # See mute block: icon/LED indicators must always clear and repaint.
+                self._shuffle.force_redraw()
+                self._shuffle.restore_backing(screen)
                 rect = self._shuffle.render(screen, state_idx)
                 if rect:
                     dirty_rects.append(rect)
@@ -1816,10 +1821,12 @@ class IndicatorRenderer:
                     _log_debug(f"[Repeat] DECISION: render=True ({reason})", "trace", "repeat")
             
             if will_render:
-                if force:
-                    self._repeat.force_redraw()
-                if not skip_restore:
-                    self._repeat.restore_backing(screen)
+                # See mute block: icon/LED indicators must always clear and repaint.
+                # This is the repeat-single "1" ghost fix: without the clear, the new
+                # (transparent) state only overwrites its own opaque pixels and the "1"
+                # from the single-repeat icon stays on screen.
+                self._repeat.force_redraw()
+                self._repeat.restore_backing(screen)
                 rect = self._repeat.render(screen, state_idx)
                 if rect:
                     dirty_rects.append(rect)
@@ -1849,10 +1856,9 @@ class IndicatorRenderer:
                     _log_debug(f"[Playstate] DECISION: render=True ({reason}), prev={self._prev_status}", "trace", "playstate")
             
             if will_render:
-                if force:
-                    self._playstate.force_redraw()
-                if not skip_restore:
-                    self._playstate.restore_backing(screen)
+                # See mute block: icon/LED indicators must always clear and repaint.
+                self._playstate.force_redraw()
+                self._playstate.restore_backing(screen)
                 rect = self._playstate.render(screen, state_idx)
                 if rect:
                     dirty_rects.append(rect)
