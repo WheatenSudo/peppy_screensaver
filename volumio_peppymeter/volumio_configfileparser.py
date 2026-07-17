@@ -1087,10 +1087,10 @@ class Volumio_ConfigFileParser(object):
             d[REPEAT_LED_SHAPE] = "circle"
         try:
             spl = config_file.get(section, REPEAT_LED_COLOR).split(',')
-            # 9 values: off_r,off_g,off_b,on_r,on_g,on_b,single_r,single_g,single_b
-            d[REPEAT_LED_COLOR] = [(int(spl[0]), int(spl[1]), int(spl[2])),
-                                   (int(spl[3]), int(spl[4]), int(spl[5])),
-                                   (int(spl[6]), int(spl[7]), int(spl[8]))]
+            # RGB triples: 9 values = off/all/single, 12 values adds an infinity state.
+            vals = [int(x) for x in spl]
+            colors = [tuple(vals[i:i + 3]) for i in range(0, len(vals) - len(vals) % 3, 3)]
+            d[REPEAT_LED_COLOR] = colors if len(colors) >= 3 else [(64, 64, 64), (0, 255, 0), (255, 200, 0)]
         except:
             d[REPEAT_LED_COLOR] = [(64, 64, 64), (0, 255, 0), (255, 200, 0)]
         try:

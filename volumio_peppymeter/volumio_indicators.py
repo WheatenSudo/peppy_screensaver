@@ -1366,6 +1366,7 @@ class IndicatorRenderer:
         self._prev_infinity = None
         self._prev_repeat = None
         self._prev_repeat_single = None
+        self._prev_repeat_infinity = None
         self._prev_status = None
         
         # Initialize indicators from config
@@ -1764,14 +1765,27 @@ class IndicatorRenderer:
                         _log_debug(f"[Mute] OUTPUT: state={mute_state}, rect={rect}", "trace", "mute")
                 self._prev_mute = mute_state
         
-        # Shuffle (3 states: off=0, shuffle=1, infinity=2)
+        # Infinity placement: Volumio cycles the repeat control off -> all -> single ->
+        # infinity. Show infinity on the REPEAT indicator when the skin provides a 4th
+        # repeat state (icon or LED colour); otherwise fall back to the legacy behaviour
+        # of showing infinity on the SHUFFLE indicator. Fully backward compatible: skins
+        # with only 3 repeat states behave exactly as before.
+        repeat_has_infinity = (
+            bool(self._repeat)
+            and len(getattr(self._repeat, "_surfaces", []) or []) >= 4
+            and self._repeat._surfaces[3] is not None
+        )
+
+        # Shuffle (states: off=0, shuffle=1; legacy infinity=2 only when repeat has no
+        # dedicated infinity state)
         if self._shuffle:
             shuffle = metadata.get("random", False)
             infinity = metadata.get("infinity", False)
             will_render = force or shuffle != self._prev_shuffle or infinity != self._prev_infinity
             
-            # State logic: infinity takes priority over shuffle
-            if infinity:
+            # State logic: legacy infinity-on-shuffle only when the repeat indicator does
+            # not own infinity; otherwise shuffle reflects random only.
+            if infinity and not repeat_has_infinity:
                 state_idx = 2
             elif shuffle:
                 state_idx = 1
@@ -1799,13 +1813,20 @@ class IndicatorRenderer:
                 self._prev_shuffle = shuffle
                 self._prev_infinity = infinity
         
-        # Repeat (3 states: off=0, all=1, single=2)
+        # Repeat (states: off=0, all=1, single=2; optional infinity=3 when the skin
+        # provides a 4th repeat state - matches Volumio's off/all/single/infinity cycle)
         if self._repeat:
             repeat = metadata.get("repeat", False)
             repeat_single = metadata.get("repeatSingle", False)
-            will_render = force or repeat != self._prev_repeat or repeat_single != self._prev_repeat_single
+            infinity = metadata.get("infinity", False)
+            will_render = (force or repeat != self._prev_repeat
+                           or repeat_single != self._prev_repeat_single
+                           or (repeat_has_infinity and infinity != self._prev_repeat_infinity))
             
-            if repeat_single:
+            # Infinity takes priority on the repeat indicator when a 4th state exists.
+            if repeat_has_infinity and infinity:
+                state_idx = 3
+            elif repeat_single:
                 state_idx = 2
             elif repeat:
                 state_idx = 1
@@ -1814,8 +1835,8 @@ class IndicatorRenderer:
             
             # TRACE: Log repeat input and decision
             if _DEBUG_LEVEL == "trace" and _DEBUG_TRACE.get("repeat", False):
-                state_names = {0: "off", 1: "all", 2: "single"}
-                _log_debug(f"[Repeat] INPUT: repeat={repeat}, repeatSingle={repeat_single}, state={state_names.get(state_idx, state_idx)}", "trace", "repeat")
+                state_names = {0: "off", 1: "all", 2: "single", 3: "infinity"}
+                _log_debug(f"[Repeat] INPUT: repeat={repeat}, repeatSingle={repeat_single}, infinity={infinity}, state={state_names.get(state_idx, state_idx)}", "trace", "repeat")
                 if will_render:
                     reason = "forced" if force else "changed"
                     _log_debug(f"[Repeat] DECISION: render=True ({reason})", "trace", "repeat")
@@ -1835,6 +1856,7 @@ class IndicatorRenderer:
                         _log_debug(f"[Repeat] OUTPUT: state={state_idx}, rect={rect}", "trace", "repeat")
                 self._prev_repeat = repeat
                 self._prev_repeat_single = repeat_single
+                self._prev_repeat_infinity = infinity
         
         # Play/Pause/Stop (3 states: stop=0, pause=1, play=2)
         if self._playstate:
