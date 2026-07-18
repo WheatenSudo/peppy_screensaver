@@ -558,6 +558,133 @@ class IconIndicator:
 
 
 # =============================================================================
+# Solid thick-arc helper (replaces pygame.draw.arc for width > 1)
+# =============================================================================
+# Why this element is special: most "smooth" curves in skins are baked into PNG
+# artwork or PIL alpha masks (albumart.circle, glow). Progress/volume arcs are
+# the rare procedural thick curve redrawn every update.
+#
+# pygame.draw.arc (width>1) = holes/stipple. Hard polygon = solid but frayed.
+# Match the quality path used elsewhere: rasterize at 4x, downsample with
+# PIL LANCZOS (GlowEffect / circular art masks already depend on PIL here).
+# Angle convention matches pygame.draw.arc: degrees, 0 = east, CCW positive.
+
+_ARC_AA_SCALE = 4
+
+
+def _arc_annular_sector_points(rect, start_deg, stop_deg, stroke):
+    """Return vertex list for one annular sector (CCW from start to stop).
+
+    :return: list of (x, y) floats, or empty list if span is empty
+    """
+    a0 = math.radians(float(start_deg))
+    a1 = math.radians(float(stop_deg))
+    span = a1 - a0
+    if span <= 0:
+        return []
+
+    cx = rect[0] + rect[2] / 2.0
+    cy = rect[1] + rect[3] / 2.0
+    rx = rect[2] / 2.0
+    ry = rect[3] / 2.0
+    rx_in = max(0.0, rx - stroke)
+    ry_in = max(0.0, ry - stroke)
+    steps = max(24, int(span / (2.0 * math.pi) * 192))
+
+    def _pt(radius_x, radius_y, angle):
+        return (cx + radius_x * math.cos(angle), cy - radius_y * math.sin(angle))
+
+    if rx_in < 0.5 or ry_in < 0.5:
+        pts = [(cx, cy)]
+        for i in range(steps + 1):
+            pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
+        return pts
+
+    pts = []
+    for i in range(steps + 1):
+        pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
+    for i in range(steps + 1):
+        pts.append(_pt(rx_in, ry_in, a0 + span * (1.0 - i / float(steps))))
+    return pts
+
+
+def _arc_sector_point_lists(start_deg, stop_deg, width, scale, size):
+    """Build scaled annular-sector polygon lists for the normalized sweep."""
+    a0 = math.radians(float(start_deg))
+    a1 = math.radians(float(stop_deg))
+    span = a1 - a0
+    while span <= 0:
+        span += 2.0 * math.pi
+    while span > 2.0 * math.pi:
+        span -= 2.0 * math.pi
+
+    stroke = max(1, int(width) * scale)
+    big_rect = (0, 0, size[0] * scale, size[1] * scale)
+    lists = []
+
+    # Full ring: two half-rings (single self-closing ring polygon fills badly).
+    if span >= 2.0 * math.pi - 1e-4:
+        mid = float(start_deg) + 180.0
+        lists.append(_arc_annular_sector_points(big_rect, float(start_deg), mid, stroke))
+        lists.append(_arc_annular_sector_points(
+            big_rect, mid, float(start_deg) + 360.0, stroke))
+    else:
+        lists.append(_arc_annular_sector_points(
+            big_rect, float(start_deg),
+            float(start_deg) + math.degrees(span), stroke))
+    return [pts for pts in lists if len(pts) >= 3]
+
+
+def _draw_solid_arc(surface, color, rect, start_deg, stop_deg, width):
+    """Draw a solid thick arc (annular sector) into surface.
+
+    :param surface: destination pygame surface
+    :param color: RGB or RGBA color
+    :param rect: bounding rect of the outer ellipse (same as pygame.draw.arc)
+    :param start_deg: start angle in degrees (pygame convention)
+    :param stop_deg: stop angle in degrees; arc fills CCW from start to stop
+    :param width: stroke thickness in pixels, inset toward center
+    """
+    if not color or width <= 0 or rect.width <= 0 or rect.height <= 0:
+        return
+
+    if len(color) >= 4:
+        fill = (int(color[0]), int(color[1]), int(color[2]), int(color[3]))
+    else:
+        fill = (int(color[0]), int(color[1]), int(color[2]), 255)
+
+    scale = _ARC_AA_SCALE
+    size = (rect.width, rect.height)
+    point_lists = _arc_sector_point_lists(start_deg, stop_deg, width, scale, size)
+    if not point_lists:
+        return
+
+    # Preferred path: PIL 4x + LANCZOS (same downsample quality as art/glow).
+    if PIL_AVAILABLE:
+        try:
+            pil_img = Image.new('RGBA', (size[0] * scale, size[1] * scale), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(pil_img)
+            for pts in point_lists:
+                draw.polygon(pts, fill=fill)
+            try:
+                resample = Image.Resampling.LANCZOS
+            except AttributeError:
+                resample = Image.LANCZOS
+            pil_img = pil_img.resize(size, resample)
+            arc_surf = pg.image.fromstring(pil_img.tobytes(), pil_img.size, 'RGBA')
+            surface.blit(arc_surf.convert_alpha(), rect.topleft)
+            return
+        except Exception:
+            pass  # fall through to pygame path
+
+    # Fallback: pygame 4x + smoothscale (no PIL).
+    big = pg.Surface((size[0] * scale, size[1] * scale), pg.SRCALPHA)
+    for pts in point_lists:
+        pg.draw.polygon(big, fill, pts)
+    surface.blit(pg.transform.smoothscale(big, size), rect.topleft)
+
+
+# =============================================================================
 # VolumeIndicator - Renders volume display in various styles
 # =============================================================================
 class SliderIndicator:
@@ -1068,9 +1195,12 @@ class SliderIndicator:
             return self.get_rect()
         
         # Procedural slider (fallback)
+        # Optional rounded ends via fill_radius (progress.fill.radius / volume.fill.radius);
+        # 0 = square (unchanged). pygame auto-clamps the radius to the drawn rectangle.
+        radius = self.fill_radius
         # Background
         if self.bg_color:
-            pg.draw.rect(screen, self.bg_color, (x, y, w, h))
+            pg.draw.rect(screen, self.bg_color, (x, y, w, h), border_radius=radius)
         
         # Foreground fill based on volume and orientation
         # Auto-detect orientation from dimensions if not explicitly horizontal
@@ -1080,12 +1210,12 @@ class SliderIndicator:
             # Vertical: fill from bottom to top
             fill_h = int((volume / 100.0) * h)
             if fill_h > 0:
-                pg.draw.rect(screen, self.color, (x, y + h - fill_h, w, fill_h))
+                pg.draw.rect(screen, self.color, (x, y + h - fill_h, w, fill_h), border_radius=radius)
         else:
             # Horizontal: fill from left to right
             fill_w = int((volume / 100.0) * w)
             if fill_w > 0:
-                pg.draw.rect(screen, self.color, (x, y, fill_w, h))
+                pg.draw.rect(screen, self.color, (x, y, fill_w, h), border_radius=radius)
         
         return pg.Rect(x, y, w, h)
     
@@ -1111,20 +1241,18 @@ class SliderIndicator:
         # Draw background arc (full sweep)
         rect = pg.Rect(x, y, w, h)
         if self.bg_color:
-            pg.draw.arc(screen, self.bg_color, rect, 
-                       math.radians(self.arc_angle_end), 
-                       math.radians(self.arc_angle_start), 
-                       self.arc_width)
+            _draw_solid_arc(
+                screen, self.bg_color, rect,
+                self.arc_angle_end, self.arc_angle_start, self.arc_width)
         
         # Draw foreground arc based on volume
         # volume 0% = arc_angle_start, volume 100% = arc_angle_end
         if volume > 0:
             # Calculate end angle for current volume
             current_angle = self.arc_angle_start - (volume / 100.0) * self.arc_angle_sweep
-            pg.draw.arc(screen, self.color, rect,
-                       math.radians(current_angle), 
-                       math.radians(self.arc_angle_start), 
-                       self.arc_width)
+            _draw_solid_arc(
+                screen, self.color, rect,
+                current_angle, self.arc_angle_start, self.arc_width)
         
         return rect
     
@@ -1363,6 +1491,7 @@ class IndicatorRenderer:
         self._prev_infinity = None
         self._prev_repeat = None
         self._prev_repeat_single = None
+        self._prev_repeat_infinity = None
         self._prev_status = None
         
         # Initialize indicators from config
@@ -1618,6 +1747,10 @@ class IndicatorRenderer:
             slider_orientation=self.config.get("progress.slider.orientation", "horizontal"),
             slider_travel=self.config.get("progress.slider.travel"),
             slider_tip_offset=self.config.get("progress.slider.tip.offset", (0, 0)),
+            fill_color=self.config.get("progress.fill.color"),
+            fill_width=self.config.get("progress.fill.width"),
+            fill_offset=self.config.get("progress.fill.offset", (0, 0)),
+            fill_radius=self.config.get("progress.fill.radius", 0),
             name="Progress",
             markers=markers,
             head_image=head_image,
@@ -1687,9 +1820,11 @@ class IndicatorRenderer:
                          repeatSingle, status, seek, duration
         :param dirty_rects: list to append dirty rects
         :param force: if True, redraw all indicators regardless of value change
-        :param skip_restore: if True, skip restore_backing calls (for BasicHandler
-                             where meters redraw every frame and procedural
-                             indicators self-clear)
+        :param skip_restore: if True, skip restore_backing for self-clearing
+                             procedural indicators (volume) in BasicHandler where
+                             meters redraw every frame. Icon/LED state indicators
+                             (mute, shuffle, repeat, playstate) always restore, since
+                             a transparent/shaped previous state cannot self-clear.
         """
         # Volume
         if self._volume:
@@ -1739,10 +1874,14 @@ class IndicatorRenderer:
                     _log_debug(f"[Mute] DECISION: render=True ({reason}), prev_state={self._prev_mute}", "trace", "mute")
             
             if will_render:
-                if force:
-                    self._mute.force_redraw()
-                if not skip_restore:
-                    self._mute.restore_backing(screen)
+                # Icon/LED state indicators cannot self-clear a transparent or shaped
+                # previous state, so always clear from the clean background before
+                # repainting - even when skip_restore is requested for self-clearing
+                # procedural indicators (BasicHandler). Force the repaint so a cleared
+                # area is never left blank when the raw flags changed but the resolved
+                # state index did not.
+                self._mute.force_redraw()
+                self._mute.restore_backing(screen)
                 rect = self._mute.render(screen, mute_state)
                 if rect:
                     dirty_rects.append(rect)
@@ -1751,14 +1890,27 @@ class IndicatorRenderer:
                         _log_debug(f"[Mute] OUTPUT: state={mute_state}, rect={rect}", "trace", "mute")
                 self._prev_mute = mute_state
         
-        # Shuffle (3 states: off=0, shuffle=1, infinity=2)
+        # Infinity placement: Volumio cycles the repeat control off -> all -> single ->
+        # infinity. Show infinity on the REPEAT indicator when the skin provides a 4th
+        # repeat state (icon or LED colour); otherwise fall back to the legacy behaviour
+        # of showing infinity on the SHUFFLE indicator. Fully backward compatible: skins
+        # with only 3 repeat states behave exactly as before.
+        repeat_has_infinity = (
+            bool(self._repeat)
+            and len(getattr(self._repeat, "_surfaces", []) or []) >= 4
+            and self._repeat._surfaces[3] is not None
+        )
+
+        # Shuffle (states: off=0, shuffle=1; legacy infinity=2 only when repeat has no
+        # dedicated infinity state)
         if self._shuffle:
             shuffle = metadata.get("random", False)
             infinity = metadata.get("infinity", False)
             will_render = force or shuffle != self._prev_shuffle or infinity != self._prev_infinity
             
-            # State logic: infinity takes priority over shuffle
-            if infinity:
+            # State logic: legacy infinity-on-shuffle only when the repeat indicator does
+            # not own infinity; otherwise shuffle reflects random only.
+            if infinity and not repeat_has_infinity:
                 state_idx = 2
             elif shuffle:
                 state_idx = 1
@@ -1774,10 +1926,9 @@ class IndicatorRenderer:
                     _log_debug(f"[Shuffle] DECISION: render=True ({reason})", "trace", "shuffle")
             
             if will_render:
-                if force:
-                    self._shuffle.force_redraw()
-                if not skip_restore:
-                    self._shuffle.restore_backing(screen)
+                # See mute block: icon/LED indicators must always clear and repaint.
+                self._shuffle.force_redraw()
+                self._shuffle.restore_backing(screen)
                 rect = self._shuffle.render(screen, state_idx)
                 if rect:
                     dirty_rects.append(rect)
@@ -1787,13 +1938,20 @@ class IndicatorRenderer:
                 self._prev_shuffle = shuffle
                 self._prev_infinity = infinity
         
-        # Repeat (3 states: off=0, all=1, single=2)
+        # Repeat (states: off=0, all=1, single=2; optional infinity=3 when the skin
+        # provides a 4th repeat state - matches Volumio's off/all/single/infinity cycle)
         if self._repeat:
             repeat = metadata.get("repeat", False)
             repeat_single = metadata.get("repeatSingle", False)
-            will_render = force or repeat != self._prev_repeat or repeat_single != self._prev_repeat_single
+            infinity = metadata.get("infinity", False)
+            will_render = (force or repeat != self._prev_repeat
+                           or repeat_single != self._prev_repeat_single
+                           or (repeat_has_infinity and infinity != self._prev_repeat_infinity))
             
-            if repeat_single:
+            # Infinity takes priority on the repeat indicator when a 4th state exists.
+            if repeat_has_infinity and infinity:
+                state_idx = 3
+            elif repeat_single:
                 state_idx = 2
             elif repeat:
                 state_idx = 1
@@ -1802,17 +1960,19 @@ class IndicatorRenderer:
             
             # TRACE: Log repeat input and decision
             if _DEBUG_LEVEL == "trace" and _DEBUG_TRACE.get("repeat", False):
-                state_names = {0: "off", 1: "all", 2: "single"}
-                _log_debug(f"[Repeat] INPUT: repeat={repeat}, repeatSingle={repeat_single}, state={state_names.get(state_idx, state_idx)}", "trace", "repeat")
+                state_names = {0: "off", 1: "all", 2: "single", 3: "infinity"}
+                _log_debug(f"[Repeat] INPUT: repeat={repeat}, repeatSingle={repeat_single}, infinity={infinity}, state={state_names.get(state_idx, state_idx)}", "trace", "repeat")
                 if will_render:
                     reason = "forced" if force else "changed"
                     _log_debug(f"[Repeat] DECISION: render=True ({reason})", "trace", "repeat")
             
             if will_render:
-                if force:
-                    self._repeat.force_redraw()
-                if not skip_restore:
-                    self._repeat.restore_backing(screen)
+                # See mute block: icon/LED indicators must always clear and repaint.
+                # This is the repeat-single "1" ghost fix: without the clear, the new
+                # (transparent) state only overwrites its own opaque pixels and the "1"
+                # from the single-repeat icon stays on screen.
+                self._repeat.force_redraw()
+                self._repeat.restore_backing(screen)
                 rect = self._repeat.render(screen, state_idx)
                 if rect:
                     dirty_rects.append(rect)
@@ -1821,6 +1981,7 @@ class IndicatorRenderer:
                         _log_debug(f"[Repeat] OUTPUT: state={state_idx}, rect={rect}", "trace", "repeat")
                 self._prev_repeat = repeat
                 self._prev_repeat_single = repeat_single
+                self._prev_repeat_infinity = infinity
         
         # Play/Pause/Stop (3 states: stop=0, pause=1, play=2)
         if self._playstate:
@@ -1842,10 +2003,9 @@ class IndicatorRenderer:
                     _log_debug(f"[Playstate] DECISION: render=True ({reason}), prev={self._prev_status}", "trace", "playstate")
             
             if will_render:
-                if force:
-                    self._playstate.force_redraw()
-                if not skip_restore:
-                    self._playstate.restore_backing(screen)
+                # See mute block: icon/LED indicators must always clear and repaint.
+                self._playstate.force_redraw()
+                self._playstate.restore_backing(screen)
                 rect = self._playstate.render(screen, state_idx)
                 if rect:
                     dirty_rects.append(rect)

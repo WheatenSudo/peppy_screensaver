@@ -89,7 +89,8 @@
                                       "position_x",
                                       "position_y",
                                       "mouseEnabled",
-                                      "displayOutput"
+                                      "displayOutput",
+                                      "formatTypeMode"
                                       ]
                               },
                 "content": [
@@ -177,6 +178,18 @@
                                     "label": "Display=1"
                                  }
                                ]
+                            },
+                            {
+                             "id": "formatTypeMode",
+                             "element": "select",
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_MODE_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_MODE",
+                             "value": {"value": "icon", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_ICON"},
+                             "options": [
+                                          {"value": "icon", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_ICON"},
+                                          {"value": "text", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_TEXT"},
+                                          {"value": "both", "label": "TRANSLATE.PEPPY_SCREENSAVER.FORMAT_TYPE_BOTH"}
+                                        ]
                             }
                 ]
             },
@@ -201,6 +214,7 @@
                                       "fanartOrder",
                                       "fanartTransition",
                                       "fanartTransitionMs",
+                                      "fanartUnlimitedImages",
                                       "useSystemFonts"
                                       ]
                               },
@@ -338,6 +352,14 @@
                                              {"max": 3000}
                                            ],
                              "value": 600
+                            },
+                            {
+                             "id": "fanartUnlimitedImages",
+                             "element": "switch",
+                             "visibleIf": {"field": "fanartEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.FANART_UNLIMITED_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.FANART_UNLIMITED_LABEL",
+                             "value": false
                             },
                             {
                              "id": "clearFanartCache",
@@ -928,6 +950,7 @@
                                       "remoteDiscoveryPort",
                                       "remoteServerPort",
                                       "remoteSpectrumPort",
+                                      "remoteSpectrumAlways",
                                       "configSyncInterval"
                                       ]
                               },
@@ -995,6 +1018,14 @@
                                              {"max": 65535}
                                            ],
                              "value": 5581
+                            },
+                            {
+                             "id": "remoteSpectrumAlways",
+                             "element": "switch",
+                             "visibleIf": {"field": "remoteServerEnabled", "value": true},
+                             "doc": "TRANSLATE.PEPPY_SCREENSAVER.REMOTE_SPECTRUM_ALWAYS_DOC",
+                             "label": "TRANSLATE.PEPPY_SCREENSAVER.REMOTE_SPECTRUM_ALWAYS",
+                             "value": false
                             },
                             {
                              "id": "configSyncInterval",

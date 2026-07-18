@@ -53,7 +53,7 @@ from volumio_configfileparser import (
     FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD, FONT_ITALIC,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
-    PLAY_TXT_CENTER, PLAY_CENTER, PLAY_MAX,
+    PLAY_TXT_CENTER, PLAY_CENTER, PLAY_ALIGN, PLAY_MAX,
     SCROLLING_SPEED_ARTIST, SCROLLING_SPEED_TITLE, SCROLLING_SPEED_ALBUM,
     PLAY_TITLE_POS, PLAY_TITLE_COLOR, PLAY_TITLE_MAX, PLAY_TITLE_STYLE,
     PLAY_ARTIST_POS, PLAY_ARTIST_COLOR, PLAY_ARTIST_MAX, PLAY_ARTIST_STYLE,
@@ -86,6 +86,24 @@ try:
     from volumio_artistfanart import FanartSlideshowRenderer
 except ImportError:
     FanartSlideshowRenderer = None
+
+try:
+    from volumio_typeformat import (
+        resolve_type_mode, resolve_type_align, make_type_font, build_type_surface,
+        skin_format_icons_dir, normalize_format_key, align_blit_pos,
+        is_real_type_dimension, resolve_type_rect, type_clear_rect_for_surface,
+    )
+except ImportError:
+    resolve_type_mode = None
+    resolve_type_align = None
+    make_type_font = None
+    build_type_surface = None
+    skin_format_icons_dir = None
+    normalize_format_key = None
+    align_blit_pos = None
+    is_real_type_dimension = None
+    resolve_type_rect = None
+    type_clear_rect_for_surface = None
 
 # Vinyl configuration constants
 try:
@@ -432,12 +450,17 @@ class ScrollingLabel:
     
     def __init__(self, font, color, pos, box_width, center=False,
                  speed_px_per_sec=40, pause_ms=400, scroll_direction="default",
-                 loop_segment_pixels=None):
+                 loop_segment_pixels=None, align=None):
         self.font = font
         self.color = color
         self.pos = pos
         self.box_width = int(box_width or 0)
-        self.center = bool(center)
+        # align = left|center|right; legacy center=True maps to center
+        if align in ("left", "center", "right"):
+            self.align = align
+        else:
+            self.align = "center" if center else "left"
+        self.center = self.align == "center"  # kept for callers that check .center
         self.speed = float(speed_px_per_sec)
         self.pause_ms = int(pause_ms)
         sd = (scroll_direction or "default").lower()
@@ -558,11 +581,13 @@ class ScrollingLabel:
             if self._backing and self._backing_rect:
                 surface.blit(self._backing, self._backing_rect.topleft)
             
-            if self.center and self.box_width > 0:
+            if self.align == "center" and self.box_width > 0:
                 left = box_rect.x + (self.box_width - self.text_w) // 2
-                surface.blit(self.surf, (left, box_rect.y))
+            elif self.align == "right" and self.box_width > 0:
+                left = box_rect.x + max(0, self.box_width - self.text_w)
             else:
-                surface.blit(self.surf, (box_rect.x, box_rect.y))
+                left = box_rect.x
+            surface.blit(self.surf, (left, box_rect.y))
             self._needs_redraw = False
             
             dirty = self._backing_rect.copy() if self._backing_rect else box_rect.copy()
@@ -1937,11 +1962,16 @@ class TurntableHandler:
         self.sample_pos = None
         self.type_pos = None
         self.type_rect = None
+        self.type_mode = "icon"
+        self.type_align = "center"
+        self.type_has_real_dim = False
+        self.type_font = None
         self.time_rect = None
         self.sample_rect = None
         self.art_rect = None  # For overlap detection
         self.sample_box = 0
         self.center_flag = False
+        self.text_align = "left"
         
         # Fonts
         self.fontL = None
@@ -1950,6 +1980,7 @@ class TurntableHandler:
         self.fontI = None
         self.fontDigi = None
         self.sample_font = None
+        self.type_font = None
         
         # Colors
         self.font_color = (255, 255, 255)
@@ -2013,7 +2044,14 @@ class TurntableHandler:
         self._draw_static_assets(mc)
         
         # Positions and colors
-        self.center_flag = bool(mc_vol.get(PLAY_CENTER, mc_vol.get(PLAY_TXT_CENTER, False)))
+        _align = mc_vol.get(PLAY_ALIGN)
+        if _align in ("left", "center", "right"):
+            self.text_align = _align
+        elif bool(mc_vol.get(PLAY_CENTER, mc_vol.get(PLAY_TXT_CENTER, False))):
+            self.text_align = "center"
+        else:
+            self.text_align = "left"
+        self.center_flag = self.text_align == "center"
         global_max = as_int(mc_vol.get(PLAY_MAX), 0)
         
         # Scrolling speed logic based on mode
@@ -2278,6 +2316,8 @@ class TurntableHandler:
                         dim=fl_dim,
                         scale_mode=fl_cfg.get("scale") or "fit",
                         filenames=fl_cfg.get("files"),
+                        border_width=fl_cfg.get("border") or 0,
+                        border_color=self.font_color,
                     ),
                     "rect": pg.Rect(fl_pos[0], fl_pos[1], fl_dim[0], fl_dim[1]),
                     "zorder": (fl_cfg.get("zorder") or "overlay"),
@@ -2356,12 +2396,12 @@ class TurntableHandler:
             print(f"[TurntableHandler] Failed to create IndicatorRenderer: {e}")
         
         # Create scrollers
-        self.artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, center=self.center_flag, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if artist_pos else None
-        self.title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=self.center_flag, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if title_pos else None
-        self.album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, center=self.center_flag, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if album_pos else None
-        self.next_title_scroller = ScrollingLabel(self._font_for_style(next_title_style), next_title_color, next_title_pos, next_title_box, center=self.center_flag, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if next_title_pos else None
-        self.next_artist_scroller = ScrollingLabel(self._font_for_style(next_artist_style), next_artist_color, next_artist_pos, next_artist_box, center=self.center_flag, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if next_artist_pos else None
-        self.next_album_scroller = ScrollingLabel(self._font_for_style(next_album_style), next_album_color, next_album_pos, next_album_box, center=self.center_flag, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if next_album_pos else None
+        self.artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, align=self.text_align, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if artist_pos else None
+        self.title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, align=self.text_align, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if title_pos else None
+        self.album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, align=self.text_align, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if album_pos else None
+        self.next_title_scroller = ScrollingLabel(self._font_for_style(next_title_style), next_title_color, next_title_pos, next_title_box, align=self.text_align, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if next_title_pos else None
+        self.next_artist_scroller = ScrollingLabel(self._font_for_style(next_artist_style), next_artist_color, next_artist_pos, next_artist_box, align=self.text_align, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if next_artist_pos else None
+        self.next_album_scroller = ScrollingLabel(self._font_for_style(next_album_style), next_album_color, next_album_pos, next_album_box, align=self.text_align, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if next_album_pos else None
 
         ticker_speed = mc_vol.get(PLAY_TICKER_SPEED, scroll_speed_title) if ticker_enabled else 40
         ticker_direction = (mc_vol.get(PLAY_TICKER_DIRECTION) or "rtl").lower()
@@ -2372,7 +2412,7 @@ class TurntableHandler:
         self.ticker_separator = mc_vol.get(PLAY_TICKER_SEPARATOR) or " · "
         self.ticker_space_between = max(0, int(mc_vol.get(PLAY_TICKER_SPACE_BETWEEN, 0)))
         self.ticker_end_spaces = max(0, int(mc_vol.get(PLAY_TICKER_END_SPACES, 8)))
-        self.ticker_scroller = ScrollingLabel(ticker_font, ticker_color, ticker_pos, ticker_box, center=self.center_flag, speed_px_per_sec=ticker_speed, scroll_direction=ticker_direction, loop_segment_pixels=None) if (ticker_enabled and ticker_pos and ticker_box) else None
+        self.ticker_scroller = ScrollingLabel(ticker_font, ticker_color, ticker_pos, ticker_box, align=self.text_align, speed_px_per_sec=ticker_speed, scroll_direction=ticker_direction, loop_segment_pixels=None) if (ticker_enabled and ticker_pos and ticker_box) else None
         self.ticker_append_next = bool(mc_vol.get(PLAY_TICKER_APPEND_NEXT)) if ticker_enabled else False
 
         # LAYER COMPOSITION: Set background surface on scrollers for proper clearing
@@ -2431,8 +2471,29 @@ class TurntableHandler:
         pg.display.update()
         
         # LAYER COMPOSITION: Create rects for clearing time/type/sample areas
-        # Type rect
-        self.type_rect = pg.Rect(self.type_pos[0], self.type_pos[1], type_dim[0], type_dim[1]) if (self.type_pos and type_dim) else None
+        # Type: mode -> align -> font (height from real dim only) -> type_rect
+        if resolve_type_mode and make_type_font and resolve_type_rect:
+            self.type_mode = resolve_type_mode(mc_vol, self.global_config)
+            self.type_align = resolve_type_align(mc_vol) if resolve_type_align else "center"
+            self.type_has_real_dim = bool(
+                is_real_type_dimension and is_real_type_dimension(type_dim)
+            )
+            _type_h = int(type_dim[1]) if self.type_has_real_dim else None
+            self.type_font = make_type_font(self.global_config, mc_vol, sample_style, _type_h)
+            self.type_rect = resolve_type_rect(
+                self.type_pos, type_dim, self.type_mode, self.type_font
+            )
+        else:
+            self.type_mode = "icon"
+            self.type_align = "center"
+            self.type_has_real_dim = bool(self.type_pos and type_dim)
+            self.type_font = self.sample_font
+            self.type_rect = (
+                pg.Rect(self.type_pos[0], self.type_pos[1], type_dim[0], type_dim[1])
+                if (self.type_pos and type_dim) else None
+            )
+        log_debug(f"  playinfo.type.mode = {self.type_mode}", "verbose")
+        log_debug(f"  playinfo.type.align = {self.type_align}", "verbose")
         
         # Time rect (for clearing from bgr_surface; use effective time font per field)
         if self.time_pos and self.font_time_remaining:
@@ -2894,9 +2955,11 @@ class TurntableHandler:
             if rect:
                 clear_regions.append(rect.inflate(8, 8))
 
-        # Folder image (background z-order) - clear when the track folder changed
+        # Folder image - clear when the track folder changed (background and overlay).
+        # Overlay must clear before meters so a missing/replaced logo does not leave
+        # stale pixels; overlaps_cleared() then redraws meters in the box.
         for _fl in self.folder_layers:
-            if _fl["zorder"] == "background" and _fl["changed"] and _fl["rect"]:
+            if _fl["changed"] and _fl["rect"] and _fl["zorder"] in ("background", "overlay"):
                 clear_regions.append(_fl["rect"])
 
         # Artist fanart (background z-order) - clear when the displayed image changed
@@ -3252,106 +3315,60 @@ class TurntableHandler:
                 self.screen.blit(surf, self.time_total_pos)
 
         # LAYER: Sample rate / format icon - only force if overlapping cleared regions
-        # Format icon
-        if self.type_rect:
-            fmt = (track_type or "").strip().lower().replace(" ", "_")
-            if fmt == "dsf":
-                fmt = "dsd"
-            
-            # Strip signal strength indicators and other suffixes
-            # DAB sends "DAB ●◦◦◦◦" -> "dab_●◦◦◦◦", need just "dab"
-            # FM sends "FM ◦◦◦◦◦" -> "fm_◦◦◦◦◦", need just "fm"
-            import re
-            fmt_clean = re.sub(r'[^a-z0-9_].*', '', fmt)  # Keep only alphanumeric prefix
-            if fmt_clean:
-                fmt = fmt_clean
-            
-            # Normalize common trackType variants to icon names
-            format_map = {
-                'dab_radio': 'dab',
-                'dab_': 'dab',
-                'dab': 'dab',
-                'rtlsdr': 'dab',
-                'rtlsdr_radio': 'dab',
-                'fm_radio': 'fm',
-                'fm_': 'fm',
-                'fm': 'fm',
-                'webradio': 'radio',
-                'web_radio': 'radio',
-                'internet_radio': 'radio',
-                'tidal_connect': 'tidal',
-                'qobuz_connect': 'qobuz',
-                'spotify': 'spotify',
-                'spotify_connect': 'spotify',
-                'airplay': 'airplay',
-                'bluetooth': 'bluetooth',
-                'upnp': 'upnp',
-                'dlna': 'upnp',
-            }
-            fmt_before = fmt
-            fmt = format_map.get(fmt, fmt)
-            
-            # TRACE: Log format icon processing
+        # Format type display (icon / text / both via volumio_typeformat)
+        if self.type_rect and build_type_surface:
+            fmt = normalize_format_key(track_type) if normalize_format_key else (track_type or "")
+
             if DEBUG_LEVEL_CURRENT == "trace" and DEBUG_TRACE.get("metadata", False):
-                log_debug(f"[FormatIcon] INPUT: track_type='{track_type}', fmt_normalized='{fmt_before}', fmt_mapped='{fmt}'", "trace", "metadata")
-            
+                log_debug(f"[FormatIcon] INPUT: track_type='{track_type}', fmt='{fmt}', mode='{self.type_mode}'", "trace", "metadata")
+
             type_overlaps = overlaps_cleared(self.type_rect)
-            needs_redraw = fmt != self.last_track_type or type_overlaps
-            
+            format_changed = fmt != self.last_track_type
+            needs_redraw = format_changed or type_overlaps
+
             if needs_redraw:
-                self.last_track_type = fmt
-                
-                # LAYER COMPOSITION: Clear from bgr_surface
-                if self.bgr_surface and self.type_rect:
+                if format_changed:
+                    self.last_track_type = fmt
+                    # Clear previous blit area so longer->shorter labels do not ghost
+                    if self.bgr_surface and self.type_rect:
+                        self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
+                        dirty_rects.append(self.type_rect.copy())
+                    skin_icons = skin_format_icons_dir(self.config, BASE_PATH, SCREEN_INFO, METER_FOLDER) if skin_format_icons_dir else None
+                    plugin_dir = os.path.dirname(__file__)
+                    surf, _key = build_type_surface(
+                        track_type,
+                        self.type_mode,
+                        self.type_rect,
+                        self.type_color,
+                        self.type_font or self.sample_font,
+                        skin_icons,
+                        plugin_dir,
+                        clip_to_box=self.type_has_real_dim,
+                    )
+                    self.last_format_icon_surf = surf
+
+                if not format_changed and self.bgr_surface and self.type_rect:
                     self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
-                
-                file_path = os.path.dirname(__file__)
-                local_icons = {'tidal', 'cd', 'qobuz', 'dab', 'fm', 'radio'}
-                if fmt in local_icons:
-                    icon_path = os.path.join(file_path, 'format-icons', f"{fmt}.svg")
-                else:
-                    icon_path = f"/volumio/http/www3/app/assets-common/format-icons/{fmt}.svg"
-                
-                if not os.path.exists(icon_path):
-                    if self.sample_font:
-                        txt_surf = self.sample_font.render(fmt[:4], True, self.type_color)
-                        self.screen.blit(txt_surf, (self.type_rect.x, self.type_rect.y))
-                        self.last_format_icon_surf = txt_surf
-                else:
-                    try:
-                        img = None
-                        # Prefer cairosvg: rasterizes at exact target dimensions,
-                        # consistent across platforms (Linux/Windows/Mac).
-                        # pg.image.load() uses SDL_image nanosvg which produces
-                        # platform-dependent default raster sizes for the same SVG.
-                        if CAIROSVG_AVAILABLE and PIL_AVAILABLE:
-                            png_bytes = cairosvg.svg2png(url=icon_path,
-                                                        output_width=self.type_rect.width,
-                                                        output_height=self.type_rect.height)
-                            pil_img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-                            img = pg.image.fromstring(pil_img.tobytes(), pil_img.size, "RGBA")
-                            img = img.convert_alpha()
-                        elif pg.version.ver.startswith("2"):
-                            # Fallback: Pygame 2 native SVG (platform-dependent size)
-                            img = pg.image.load(icon_path)
-                            w, h = img.get_width(), img.get_height()
-                            sc = min(self.type_rect.width / float(w), self.type_rect.height / float(h))
-                            new_size = (max(1, int(w * sc)), max(1, int(h * sc)))
-                            try:
-                                img = pg.transform.smoothscale(img, new_size)
-                            except Exception:
-                                img = pg.transform.scale(img, new_size)
-                            img = img.convert_alpha()
-                        if img:
-                            set_color(img, pg.Color(self.type_color[0], self.type_color[1], self.type_color[2]))
-                            dx = self.type_rect.x + (self.type_rect.width - img.get_width()) // 2
-                            dy = self.type_rect.y + (self.type_rect.height - img.get_height()) // 2
-                            self.screen.blit(img, (dx, dy))
-                            self.last_format_icon_surf = img
-                    except Exception as e:
-                        print(f"[FormatIcon] error: {e}")
-                
-                dirty_rects.append(self.type_rect.copy())
+
+                if self.last_format_icon_surf:
+                    if self.type_has_real_dim:
+                        pos = (
+                            align_blit_pos(
+                                self.type_rect, self.last_format_icon_surf, self.type_align
+                            )
+                            if align_blit_pos else None
+                        )
+                        if pos is not None:
+                            self.screen.blit(self.last_format_icon_surf, pos)
+                    else:
+                        self.screen.blit(self.last_format_icon_surf, self.type_pos)
+                        if type_clear_rect_for_surface:
+                            self.type_rect = type_clear_rect_for_surface(
+                                self.type_pos, self.last_format_icon_surf
+                            )
+
+                if self.type_rect:
+                    dirty_rects.append(self.type_rect.copy())
         
         # Sample rate - only force if overlapping cleared regions
         if self.sample_pos and self.sample_box:
@@ -3372,18 +3389,22 @@ class TurntableHandler:
                 
                 self.last_sample_surf = self.sample_font.render(sample_text, True, self.sample_color)
                 
-                if self.center_flag and self.sample_box:
+                if self.text_align == "center" and self.sample_box:
                     sx = self.sample_pos[0] + (self.sample_box - self.last_sample_surf.get_width()) // 2
+                elif self.text_align == "right" and self.sample_box:
+                    sx = self.sample_pos[0] + max(0, self.sample_box - self.last_sample_surf.get_width())
                 else:
                     sx = self.sample_pos[0]
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
         
-        # LAYER: Folder images (overlay z-order) - above dynamic content, below foreground
+        # LAYER: Folder images (overlay z-order) - above dynamic content, below foreground.
+        # Track-folder change with no image: early clear_regions already wiped the slot.
+        # Track-folder change with a new image: redraw after meters (changed or first blit).
         for _fl in self.folder_layers:
             if _fl["zorder"] != "overlay" or not _fl["r"].has_image():
                 continue
             fl_rect = _fl["r"].get_backing_rect()
-            need_overlay = _fl["r"]._need_first_blit
+            need_overlay = _fl["changed"] or _fl["r"]._need_first_blit
             if not need_overlay and fl_rect:
                 for d in dirty_rects:
                     if d and fl_rect.colliderect(d):

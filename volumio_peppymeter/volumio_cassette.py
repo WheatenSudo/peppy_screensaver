@@ -15,9 +15,11 @@
 import os
 import tempfile
 import io
+import json
 import math
 import time
 import time as time_module
+import urllib.request
 import requests
 import pygame as pg
 
@@ -51,7 +53,7 @@ from volumio_configfileparser import (
     FONT_PATH, FONT_LIGHT, FONT_REGULAR, FONT_BOLD, FONT_ITALIC,
     ALBUMART_POS, ALBUMART_DIM, ALBUMART_MSK, ALBUMBORDER,
     ALBUMART_ROT, ALBUMART_ROT_SPEED,
-    PLAY_TXT_CENTER, PLAY_CENTER, PLAY_MAX,
+    PLAY_TXT_CENTER, PLAY_CENTER, PLAY_ALIGN, PLAY_MAX,
     SCROLLING_SPEED, SCROLLING_SPEED_ARTIST, SCROLLING_SPEED_TITLE, SCROLLING_SPEED_ALBUM,
     PLAY_TITLE_POS, PLAY_TITLE_COLOR, PLAY_TITLE_MAX, PLAY_TITLE_STYLE,
     PLAY_ARTIST_POS, PLAY_ARTIST_COLOR, PLAY_ARTIST_MAX, PLAY_ARTIST_STYLE,
@@ -79,10 +81,58 @@ try:
 except ImportError:
     FolderImageRenderer = None
 
+
+def _fetch_album_image_from_server(volumio_url, uri, filename):
+    """Fetch album-folder image via peppy_screensaver_vinyl (shared with turntable)."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(volumio_url or "http://localhost:3000")
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 3000
+        url = "http://%s:%d/api/v1/pluginEndpoint" % (host, port)
+        body = json.dumps({
+            "endpoint": "peppy_screensaver_vinyl",
+            "data": {"uri": uri, "filename": filename},
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json",
+                     "User-Agent": "PeppyScreensaver/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode())
+        if not data.get("success"):
+            return None
+        inner = data.get("data", {})
+        if inner.get("success") and inner.get("data"):
+            import base64
+            return base64.b64decode(inner["data"])
+        return None
+    except Exception:
+        return None
+
 try:
     from volumio_artistfanart import FanartSlideshowRenderer
 except ImportError:
     FanartSlideshowRenderer = None
+
+try:
+    from volumio_typeformat import (
+        resolve_type_mode, resolve_type_align, make_type_font, build_type_surface,
+        skin_format_icons_dir, normalize_format_key, align_blit_pos,
+        is_real_type_dimension, resolve_type_rect, type_clear_rect_for_surface,
+    )
+except ImportError:
+    resolve_type_mode = None
+    resolve_type_align = None
+    make_type_font = None
+    build_type_surface = None
+    skin_format_icons_dir = None
+    normalize_format_key = None
+    align_blit_pos = None
+    is_real_type_dimension = None
+    resolve_type_rect = None
+    type_clear_rect_for_surface = None
 
 # Reel configuration constants
 try:
@@ -365,12 +415,17 @@ class ScrollingLabel:
     
     def __init__(self, font, color, pos, box_width, center=False,
                  speed_px_per_sec=40, pause_ms=400, scroll_direction="default",
-                 loop_segment_pixels=None):
+                 loop_segment_pixels=None, align=None):
         self.font = font
         self.color = color
         self.pos = pos
         self.box_width = int(box_width or 0)
-        self.center = bool(center)
+        # align = left|center|right; legacy center=True maps to center
+        if align in ("left", "center", "right"):
+            self.align = align
+        else:
+            self.align = "center" if center else "left"
+        self.center = self.align == "center"  # kept for callers that check .center
         self.speed = float(speed_px_per_sec)
         self.pause_ms = int(pause_ms)
         sd = (scroll_direction or "default").lower()
@@ -486,11 +541,13 @@ class ScrollingLabel:
             elif self._backing and self._backing_rect:
                 surface.blit(self._backing, self._backing_rect.topleft)
             
-            if self.center and self.box_width > 0:
+            if self.align == "center" and self.box_width > 0:
                 left = box_rect.x + (self.box_width - self.text_w) // 2
-                surface.blit(self.surf, (left, box_rect.y))
+            elif self.align == "right" and self.box_width > 0:
+                left = box_rect.x + max(0, self.box_width - self.text_w)
             else:
-                surface.blit(self.surf, (box_rect.x, box_rect.y))
+                left = box_rect.x
+            surface.blit(self.surf, (left, box_rect.y))
             self._needs_redraw = False
             
             dirty = self._backing_rect.copy() if self._backing_rect else box_rect.copy()
@@ -760,6 +817,7 @@ class ReelRenderer:
         self._trace_component = name.replace("_", ".")  # "reel_left" -> "reel.left"
         
         self._original_surf = None
+        self._theme_size = None  # theme reel size; album sources are scaled to match
         self._rot_frames = None
         self._current_angle = 0.0
         self._loaded = False
@@ -772,6 +830,40 @@ class ReelRenderer:
         
         self._load_image()
     
+    def _rebuild_frames(self):
+        """Rebuild precomputed rotation frames from _original_surf."""
+        self._rot_frames = None
+        if USE_PRECOMPUTED_FRAMES and self.center and self.rotate_rpm > 0.0 and self._original_surf:
+            try:
+                self._rot_frames = [
+                    pg.transform.rotate(self._original_surf, -a)
+                    for a in range(0, 360, self.rotation_step)
+                ]
+            except Exception:
+                self._rot_frames = None
+
+    def _apply_source_surface(self, surf):
+        """Install a new reel surface (scaled to theme size when known)."""
+        try:
+            surf = surf.convert_alpha()
+        except Exception:
+            pass
+        if self._theme_size:
+            tw, th = self._theme_size
+            if surf.get_width() != tw or surf.get_height() != th:
+                try:
+                    surf = pg.transform.smoothscale(surf, (tw, th))
+                except Exception:
+                    surf = pg.transform.scale(surf, (tw, th))
+        elif not self._theme_size and surf:
+            self._theme_size = surf.get_size()
+        self._original_surf = surf
+        self._loaded = True
+        self._need_first_blit = True
+        self._needs_redraw = True
+        self._rebuild_frames()
+        return True
+
     def _load_image(self):
         """Load the reel PNG file and pre-compute rotation frames."""
         if not self.filename:
@@ -780,22 +872,35 @@ class ReelRenderer:
         try:
             img_path = os.path.join(self.base_path, self.meter_folder, self.filename)
             if os.path.exists(img_path):
-                self._original_surf = pg.image.load(img_path).convert_alpha()
-                self._loaded = True
-                self._need_first_blit = True
-                
-                if USE_PRECOMPUTED_FRAMES and self.center and self.rotate_rpm > 0.0:
-                    try:
-                        self._rot_frames = [
-                            pg.transform.rotate(self._original_surf, -a)
-                            for a in range(0, 360, self.rotation_step)
-                        ]
-                    except Exception:
-                        self._rot_frames = None
+                surf = pg.image.load(img_path).convert_alpha()
+                if not self._theme_size:
+                    self._theme_size = surf.get_size()
+                self._apply_source_surface(surf)
             else:
                 print(f"[ReelRenderer] File not found: {img_path}")
         except Exception as e:
             print(f"[ReelRenderer] Failed to load '{self.filename}': {e}")
+
+    def load_from_file(self, filepath):
+        """Load reel image from an absolute path (album-folder cdart etc.)."""
+        if not filepath or not os.path.isfile(filepath):
+            return False
+        try:
+            return self._apply_source_surface(pg.image.load(filepath))
+        except Exception as e:
+            print(f"[ReelRenderer] load_from_file failed: {e}")
+            return False
+
+    def load_from_bytes(self, img_bytes):
+        """Load reel image from bytes (remote fetch via peppy_screensaver_vinyl)."""
+        if not img_bytes:
+            return False
+        try:
+            buf = img_bytes if isinstance(img_bytes, io.BytesIO) else io.BytesIO(img_bytes)
+            return self._apply_source_surface(pg.image.load(buf))
+        except Exception as e:
+            print(f"[ReelRenderer] load_from_bytes failed: {e}")
+            return False
     
     def _update_angle(self, status, now_ticks, volatile=False):
         """Update rotation angle based on RPM, direction, and playback status."""
@@ -1010,10 +1115,15 @@ class CassetteHandler:
         self.sample_pos = None
         self.type_pos = None
         self.type_rect = None
+        self.type_mode = "icon"
+        self.type_align = "center"
+        self.type_has_real_dim = False
+        self.type_font = None
         self.time_rect = None
         self.sample_rect = None
         self.sample_box = 0
         self.center_flag = False
+        self.text_align = "left"
         
         # Fonts
         self.fontL = None
@@ -1022,6 +1132,7 @@ class CassetteHandler:
         self.fontI = None
         self.fontDigi = None
         self.sample_font = None
+        self.type_font = None
         
         # Colors
         self.font_color = (255, 255, 255)
@@ -1101,7 +1212,14 @@ class CassetteHandler:
         self._draw_static_assets(mc)
         
         # Positions and colors
-        self.center_flag = bool(mc_vol.get(PLAY_CENTER, mc_vol.get(PLAY_TXT_CENTER, False)))
+        _align = mc_vol.get(PLAY_ALIGN)
+        if _align in ("left", "center", "right"):
+            self.text_align = _align
+        elif bool(mc_vol.get(PLAY_CENTER, mc_vol.get(PLAY_TXT_CENTER, False))):
+            self.text_align = "center"
+        else:
+            self.text_align = "left"
+        self.center_flag = self.text_align == "center"
         global_max = as_int(mc_vol.get(PLAY_MAX), 0)
         
         # Scrolling speed logic based on mode (from global config)
@@ -1313,6 +1431,8 @@ class CassetteHandler:
                         dim=fl_dim,
                         scale_mode=fl_cfg.get("scale") or "fit",
                         filenames=fl_cfg.get("files"),
+                        border_width=fl_cfg.get("border") or 0,
+                        border_color=self.font_color,
                     ),
                     "rect": pg.Rect(fl_pos[0], fl_pos[1], fl_dim[0], fl_dim[1]),
                     "zorder": (fl_cfg.get("zorder") or "overlay"),
@@ -1342,6 +1462,13 @@ class CassetteHandler:
         # Create reel renderers
         self.reel_left = None
         self.reel_right = None
+        # Vinyl-like filename forms: single = theme only; "cdart.png,reel.png" = album then theme
+        self._reel_left_album_source = None
+        self._reel_left_theme = None
+        self._reel_right_album_source = None
+        self._reel_right_theme = None
+        self._last_reel_left_uri = None
+        self._last_reel_right_uri = None
         
         reel_left_file = mc_vol.get(REEL_LEFT_FILE)
         reel_left_pos = mc_vol.get(REEL_LEFT_POS)
@@ -1350,6 +1477,15 @@ class CassetteHandler:
         reel_right_pos = mc_vol.get(REEL_RIGHT_POS)
         reel_right_center = mc_vol.get(REEL_RIGHT_CENTER)
         reel_rpm = as_float(mc_vol.get(REEL_ROTATION_SPEED), 0.0)
+
+        def _parse_reel_filename(raw):
+            """Return (album_source_or_None, theme_filename)."""
+            if not raw:
+                return None, None
+            parts = [p.strip() for p in str(raw).split(",")]
+            if len(parts) >= 2:
+                return (parts[0] or None), (parts[1] or parts[0])
+            return None, parts[0]
         
         rot_quality = self.meter_config_volumio.get(ROTATION_QUALITY, "medium")
         rot_custom_fps = self.meter_config_volumio.get(ROTATION_FPS, 8)
@@ -1379,10 +1515,11 @@ class CassetteHandler:
         log_debug(f"  Computed: spool_left_mult={spool_left_mult}, spool_right_mult={spool_right_mult}", "verbose")
         
         if reel_left_file and reel_left_center:
+            self._reel_left_album_source, self._reel_left_theme = _parse_reel_filename(reel_left_file)
             self.reel_left = ReelRenderer(
                 base_path=self.config.get(BASE_PATH),
                 meter_folder=self.config.get(SCREEN_INFO)[METER_FOLDER],
-                filename=reel_left_file,
+                filename=self._reel_left_theme or reel_left_file,
                 pos=reel_left_pos,
                 center=reel_left_center,
                 rotate_rpm=reel_rpm,
@@ -1400,10 +1537,11 @@ class CassetteHandler:
             log_debug(f"  ReelRenderer LEFT visual_rect: x={visual_rect.x}, y={visual_rect.y}, w={visual_rect.width}, h={visual_rect.height}" if visual_rect else "  ReelRenderer LEFT visual_rect: None", "verbose")
         
         if reel_right_file and reel_right_center:
+            self._reel_right_album_source, self._reel_right_theme = _parse_reel_filename(reel_right_file)
             self.reel_right = ReelRenderer(
                 base_path=self.config.get(BASE_PATH),
                 meter_folder=self.config.get(SCREEN_INFO)[METER_FOLDER],
-                filename=reel_right_file,
+                filename=self._reel_right_theme or reel_right_file,
                 pos=reel_right_pos,
                 center=reel_right_center,
                 rotate_rpm=reel_rpm,
@@ -1477,12 +1615,12 @@ class CassetteHandler:
             print(f"[CassetteHandler] Failed to create IndicatorRenderer: {e}")
         
         # Create scrollers (no backing capture needed - layer composition handles overlaps)
-        self.artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, center=self.center_flag, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if artist_pos else None
-        self.title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, center=self.center_flag, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if title_pos else None
-        self.album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, center=self.center_flag, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if album_pos else None
-        self.next_title_scroller = ScrollingLabel(self._font_for_style(next_title_style), next_title_color, next_title_pos, next_title_box, center=self.center_flag, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if next_title_pos else None
-        self.next_artist_scroller = ScrollingLabel(self._font_for_style(next_artist_style), next_artist_color, next_artist_pos, next_artist_box, center=self.center_flag, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if next_artist_pos else None
-        self.next_album_scroller = ScrollingLabel(self._font_for_style(next_album_style), next_album_color, next_album_pos, next_album_box, center=self.center_flag, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if next_album_pos else None
+        self.artist_scroller = ScrollingLabel(artist_font, artist_color, artist_pos, artist_box, align=self.text_align, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if artist_pos else None
+        self.title_scroller = ScrollingLabel(title_font, title_color, title_pos, title_box, align=self.text_align, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if title_pos else None
+        self.album_scroller = ScrollingLabel(album_font, album_color, album_pos, album_box, align=self.text_align, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if album_pos else None
+        self.next_title_scroller = ScrollingLabel(self._font_for_style(next_title_style), next_title_color, next_title_pos, next_title_box, align=self.text_align, speed_px_per_sec=scroll_speed_title, scroll_direction="default") if next_title_pos else None
+        self.next_artist_scroller = ScrollingLabel(self._font_for_style(next_artist_style), next_artist_color, next_artist_pos, next_artist_box, align=self.text_align, speed_px_per_sec=scroll_speed_artist, scroll_direction="default") if next_artist_pos else None
+        self.next_album_scroller = ScrollingLabel(self._font_for_style(next_album_style), next_album_color, next_album_pos, next_album_box, align=self.text_align, speed_px_per_sec=scroll_speed_album, scroll_direction="default") if next_album_pos else None
 
         ticker_speed = mc_vol.get(PLAY_TICKER_SPEED, scroll_speed_title) if ticker_enabled else 40
         ticker_direction = (mc_vol.get(PLAY_TICKER_DIRECTION) or "rtl").lower()
@@ -1493,7 +1631,7 @@ class CassetteHandler:
         self.ticker_separator = mc_vol.get(PLAY_TICKER_SEPARATOR) or " · "
         self.ticker_space_between = max(0, int(mc_vol.get(PLAY_TICKER_SPACE_BETWEEN, 0)))
         self.ticker_end_spaces = max(0, int(mc_vol.get(PLAY_TICKER_END_SPACES, 8)))
-        self.ticker_scroller = ScrollingLabel(ticker_font, ticker_color, ticker_pos, ticker_box, center=self.center_flag, speed_px_per_sec=ticker_speed, scroll_direction=ticker_direction, loop_segment_pixels=None) if (ticker_enabled and ticker_pos and ticker_box) else None
+        self.ticker_scroller = ScrollingLabel(ticker_font, ticker_color, ticker_pos, ticker_box, align=self.text_align, speed_px_per_sec=ticker_speed, scroll_direction=ticker_direction, loop_segment_pixels=None) if (ticker_enabled and ticker_pos and ticker_box) else None
         self.ticker_append_next = bool(mc_vol.get(PLAY_TICKER_APPEND_NEXT)) if ticker_enabled else False
 
         # LAYER COMPOSITION: Set background surface on scrollers for proper clearing
@@ -1529,8 +1667,29 @@ class CassetteHandler:
         pg.display.update()
         
         # LAYER COMPOSITION: Create rects for clearing time/type/sample areas
-        # Type rect
-        self.type_rect = pg.Rect(self.type_pos[0], self.type_pos[1], type_dim[0], type_dim[1]) if (self.type_pos and type_dim) else None
+        # Type: mode -> align -> font (height from real dim only) -> type_rect
+        if resolve_type_mode and make_type_font and resolve_type_rect:
+            self.type_mode = resolve_type_mode(mc_vol, self.meter_config_volumio)
+            self.type_align = resolve_type_align(mc_vol) if resolve_type_align else "center"
+            self.type_has_real_dim = bool(
+                is_real_type_dimension and is_real_type_dimension(type_dim)
+            )
+            _type_h = int(type_dim[1]) if self.type_has_real_dim else None
+            self.type_font = make_type_font(self.meter_config_volumio, mc_vol, sample_style, _type_h)
+            self.type_rect = resolve_type_rect(
+                self.type_pos, type_dim, self.type_mode, self.type_font
+            )
+        else:
+            self.type_mode = "icon"
+            self.type_align = "center"
+            self.type_has_real_dim = bool(self.type_pos and type_dim)
+            self.type_font = self.sample_font
+            self.type_rect = (
+                pg.Rect(self.type_pos[0], self.type_pos[1], type_dim[0], type_dim[1])
+                if (self.type_pos and type_dim) else None
+            )
+        log_debug(f"  playinfo.type.mode = {self.type_mode}", "verbose")
+        log_debug(f"  playinfo.type.align = {self.type_align}", "verbose")
         
         # Time rect (for clearing from bgr_surface; use effective time font per field)
         if self.time_pos and self.font_time_remaining:
@@ -1799,6 +1958,43 @@ class CassetteHandler:
         volatile = meta.get("volatile", False)
         is_playing = status == "play"
         duration = meta.get("duration", 0) or 0
+        uri = meta.get("uri", "") or ""
+        volumio_url = meta.get("_volumio_url", "http://localhost:3000")
+
+        # Reel album-folder source (vinyl-like): cdart.png,theme.png on URI change
+        def _update_reel_album(renderer, album_source, theme_fallback, last_attr):
+            if not renderer or not theme_fallback:
+                return
+            if uri == getattr(self, last_attr, None):
+                return
+            if not album_source:
+                setattr(self, last_attr, uri)
+                return
+            loaded = False
+            if uri:
+                is_local = "localhost" in volumio_url or "127.0.0.1" in volumio_url
+                if is_local:
+                    san = uri.replace("music-library/", "").replace("mnt/", "")
+                    base = "/mnt/" + san if not san.startswith("/") else "/mnt" + san
+                    album_folder = os.path.dirname(base)
+                    cand = os.path.join(album_folder, album_source)
+                    if os.path.isfile(cand):
+                        loaded = renderer.load_from_file(cand)
+                else:
+                    img_bytes = _fetch_album_image_from_server(volumio_url, uri, album_source)
+                    if img_bytes:
+                        loaded = renderer.load_from_bytes(img_bytes)
+            if not loaded:
+                renderer.filename = theme_fallback
+                renderer._load_image()
+            setattr(self, last_attr, uri)
+
+        _update_reel_album(
+            self.reel_left, getattr(self, "_reel_left_album_source", None),
+            getattr(self, "_reel_left_theme", None), "_last_reel_left_uri")
+        _update_reel_album(
+            self.reel_right, getattr(self, "_reel_right_album_source", None),
+            getattr(self, "_reel_right_theme", None), "_last_reel_right_uri")
         
         # Get queue mode from config
         queue_mode = self.meter_config_volumio.get(QUEUE_MODE, "track")
@@ -1946,9 +2142,11 @@ class CassetteHandler:
             if rect:
                 clear_regions.append(rect)
 
-        # Folder image (background z-order) needs clearing when the track folder changed
+        # Folder image needs clearing when the track folder changed (background and
+        # overlay). Overlay must clear before meters so a missing/replaced logo does
+        # not leave stale pixels; overlaps_cleared() then redraws meters in the box.
         for _fl in self.folder_layers:
-            if _fl["zorder"] == "background" and _fl["changed"] and _fl["rect"]:
+            if _fl["changed"] and _fl["rect"] and _fl["zorder"] in ("background", "overlay"):
                 clear_regions.append(_fl["rect"])
 
         # Artist fanart (background z-order) needs clearing when the displayed image
@@ -2245,112 +2443,61 @@ class CassetteHandler:
                 surf = self.font_time_total.render(total_str, True, self.time_total_color)
                 self.screen.blit(surf, self.time_total_pos)
 
-        # LAYER 8: Sample rate / format icon
+        # LAYER 8: Sample rate / format icon (icon / text / both via volumio_typeformat)
         # PERFORMANCE FIX: Separate format CHANGE (expensive) from force BLIT (cheap)
         # Profiler showed 46% CPU wasted reloading/scaling/colorizing icon every frame
-        if self.type_rect:
-            fmt = (track_type or "").strip().lower().replace(" ", "_")
-            if fmt == "dsf":
-                fmt = "dsd"
-            
-            # Strip signal strength indicators and other suffixes
-            # DAB sends "DAB ●◦◦◦◦" -> "dab_●◦◦◦◦", need just "dab"
-            # FM sends "FM ◦◦◦◦◦" -> "fm_◦◦◦◦◦", need just "fm"
-            import re
-            fmt_clean = re.sub(r'[^a-z0-9_].*', '', fmt)  # Keep only alphanumeric prefix
-            if fmt_clean:
-                fmt = fmt_clean
-            
-            # Normalize common trackType variants to icon names
-            format_map = {
-                'dab_radio': 'dab',
-                'dab_': 'dab',
-                'dab': 'dab',
-                'rtlsdr': 'dab',
-                'rtlsdr_radio': 'dab',
-                'fm_radio': 'fm',
-                'fm_': 'fm',
-                'fm': 'fm',
-                'webradio': 'radio',
-                'web_radio': 'radio',
-                'internet_radio': 'radio',
-                'tidal_connect': 'tidal',
-                'qobuz_connect': 'qobuz',
-                'spotify': 'spotify',
-                'spotify_connect': 'spotify',
-                'airplay': 'airplay',
-                'bluetooth': 'bluetooth',
-                'upnp': 'upnp',
-                'dlna': 'upnp',
-            }
-            fmt_before = fmt
-            fmt = format_map.get(fmt, fmt)
-            
-            # TRACE: Log format icon processing
+        if self.type_rect and build_type_surface:
+            fmt = normalize_format_key(track_type) if normalize_format_key else (track_type or "")
+
             if DEBUG_LEVEL_CURRENT == "trace" and DEBUG_TRACE.get("metadata", False):
-                log_debug(f"[FormatIcon] INPUT: track_type='{track_type}', fmt_normalized='{fmt_before}', fmt_mapped='{fmt}'", "trace", "metadata")
-            
-            # Only reload icon when format actually changes (once per track)
+                log_debug(f"[FormatIcon] INPUT: track_type='{track_type}', fmt='{fmt}', mode='{self.type_mode}'", "trace", "metadata")
+
+            # Only rebuild surface when format actually changes (once per track)
             format_changed = fmt != self.last_track_type
-            
+
             if format_changed:
                 self.last_track_type = fmt
-                self.last_format_icon_surf = None  # Clear cache
-                
-                # Check for icon file
-                file_path = os.path.dirname(__file__)
-                local_icons = {'tidal', 'cd', 'qobuz', 'dab', 'fm', 'radio'}
-                if fmt in local_icons:
-                    icon_path = os.path.join(file_path, 'format-icons', f"{fmt}.svg")
-                else:
-                    icon_path = f"/volumio/http/www3/app/assets-common/format-icons/{fmt}.svg"
-                
-                if not os.path.exists(icon_path):
-                    # Render text fallback
-                    if self.sample_font and fmt:
-                        self.last_format_icon_surf = self.sample_font.render(fmt[:4], True, self.type_color)
-                else:
-                    try:
-                        img = None
-                        # Prefer cairosvg: rasterizes at exact target dimensions,
-                        # consistent across platforms (Linux/Windows/Mac).
-                        # pg.image.load() uses SDL_image nanosvg which produces
-                        # platform-dependent default raster sizes for the same SVG.
-                        if CAIROSVG_AVAILABLE and PIL_AVAILABLE:
-                            png_bytes = cairosvg.svg2png(url=icon_path, 
-                                                          output_width=self.type_rect.width,
-                                                          output_height=self.type_rect.height)
-                            pil_img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-                            img = pg.image.fromstring(pil_img.tobytes(), pil_img.size, "RGBA")
-                            img = img.convert_alpha()
-                        elif pg.version.ver.startswith("2"):
-                            # Fallback: Pygame 2 native SVG (platform-dependent size)
-                            img = pg.image.load(icon_path)
-                            w, h = img.get_width(), img.get_height()
-                            sc = min(self.type_rect.width / float(w), self.type_rect.height / float(h))
-                            new_size = (max(1, int(w * sc)), max(1, int(h * sc)))
-                            try:
-                                img = pg.transform.smoothscale(img, new_size)
-                            except Exception:
-                                img = pg.transform.scale(img, new_size)
-                            img = img.convert_alpha()
-                        if img:
-                            set_color(img, pg.Color(self.type_color[0], self.type_color[1], self.type_color[2]))
-                            self.last_format_icon_surf = img
-                    except Exception as e:
-                        print(f"[FormatIcon] error: {e}")
-            
-            # Blit cached icon when format changed OR when force_flag (reel overlap)
-            if (format_changed or force_flag) and self.last_format_icon_surf:
-                # Clear from bgr_surface
-                if self.bgr_surface:
+                # Clear previous blit area so longer->shorter labels do not ghost
+                if self.bgr_surface and self.type_rect:
                     self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
-                
-                # Center and blit cached icon
-                dx = self.type_rect.x + (self.type_rect.width - self.last_format_icon_surf.get_width()) // 2
-                dy = self.type_rect.y + (self.type_rect.height - self.last_format_icon_surf.get_height()) // 2
-                self.screen.blit(self.last_format_icon_surf, (dx, dy))
-                dirty_rects.append(self.type_rect.copy())
+                    dirty_rects.append(self.type_rect.copy())
+                self.last_format_icon_surf = None  # Clear cache
+                skin_icons = skin_format_icons_dir(self.config, BASE_PATH, SCREEN_INFO, METER_FOLDER) if skin_format_icons_dir else None
+                plugin_dir = os.path.dirname(__file__)
+                surf, _key = build_type_surface(
+                    track_type,
+                    self.type_mode,
+                    self.type_rect,
+                    self.type_color,
+                    self.type_font or self.sample_font,
+                    skin_icons,
+                    plugin_dir,
+                    clip_to_box=self.type_has_real_dim,
+                )
+                self.last_format_icon_surf = surf
+
+            # Blit cached surface when format changed OR when force_flag (reel overlap)
+            if (format_changed or force_flag) and self.last_format_icon_surf:
+                if not format_changed and self.bgr_surface and self.type_rect:
+                    self.screen.blit(self.bgr_surface, self.type_rect.topleft, self.type_rect)
+
+                if self.type_has_real_dim:
+                    pos = (
+                        align_blit_pos(
+                            self.type_rect, self.last_format_icon_surf, self.type_align
+                        )
+                        if align_blit_pos else None
+                    )
+                    if pos is not None:
+                        self.screen.blit(self.last_format_icon_surf, pos)
+                else:
+                    self.screen.blit(self.last_format_icon_surf, self.type_pos)
+                    if type_clear_rect_for_surface:
+                        self.type_rect = type_clear_rect_for_surface(
+                            self.type_pos, self.last_format_icon_surf
+                        )
+                if self.type_rect:
+                    dirty_rects.append(self.type_rect.copy())
         
         # Sample rate
         if self.sample_pos and self.sample_box:
@@ -2370,18 +2517,22 @@ class CassetteHandler:
                 
                 self.last_sample_surf = self.sample_font.render(sample_text, True, self.sample_color)
                 
-                if self.center_flag and self.sample_box:
+                if self.text_align == "center" and self.sample_box:
                     sx = self.sample_pos[0] + (self.sample_box - self.last_sample_surf.get_width()) // 2
+                elif self.text_align == "right" and self.sample_box:
+                    sx = self.sample_pos[0] + max(0, self.sample_box - self.last_sample_surf.get_width())
                 else:
                     sx = self.sample_pos[0]
                 self.screen.blit(self.last_sample_surf, (sx, self.sample_pos[1]))
         
-        # LAYER 8b: Folder images (overlay z-order) - above dynamic content, below foreground
+        # LAYER 8b: Folder images (overlay z-order) - above dynamic content, below foreground.
+        # Track-folder change with no image: early clear_regions already wiped the slot.
+        # Track-folder change with a new image: redraw after meters (changed or first blit).
         for _fl in self.folder_layers:
             if _fl["zorder"] != "overlay" or not _fl["r"].has_image():
                 continue
             fl_rect = _fl["r"].get_backing_rect()
-            need_overlay = _fl["r"]._need_first_blit
+            need_overlay = _fl["changed"] or _fl["r"]._need_first_blit
             if not need_overlay and fl_rect:
                 for d in dirty_rects:
                     if d and fl_rect.colliderect(d):

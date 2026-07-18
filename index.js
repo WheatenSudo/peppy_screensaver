@@ -65,7 +65,7 @@ const REMOTE_MIN_API_VERSION = 1;
 // never drift from what actually ships; these regexes are the only trust boundary.
 const REMOTE_HANDLER_NAME_REGEX = /^(volumio_[A-Za-z0-9_]+\.py|screensaverspectrum\.py)$/;
 const REMOTE_FONT_NAME_REGEX = /^[A-Za-z0-9 ._\-]+\.(ttf|otf)$/;
-const REMOTE_CAPABILITIES = ['fanart', 'folderlayer', 'italic', 'samplerate_color', 'progress_markers', 'spectrum', 'remote'];
+const REMOTE_CAPABILITIES = ['fanart', 'folderlayer', 'italic', 'samplerate_color', 'progress_markers', 'spectrum', 'remote', 'type_display_mode'];
 const THEME_PREVIEW_FILES = ['preview.png', 'preview.jpg', 'preview.jpeg', 'art.png', 'art.jpg'];
 const THEME_GALLERY_COLS = 3;
 const THEME_GALLERY_IMG_WIDTH = 200;
@@ -180,6 +180,9 @@ peppyScreensaver.prototype.onStart = function() {
             self.config.set('remoteServerPort', parseInt(peppy_config.current['remote.server.port'], 10) || 5580);
             self.config.set('remoteDiscoveryPort', parseInt(peppy_config.current['remote.discovery.port'], 10) || 5579);
             self.config.set('remoteSpectrumPort', parseInt(peppy_config.current['remote.spectrum.port'], 10) || 5581);
+            if (peppy_config.current['remote.spectrum.always'] !== undefined) {
+                self.config.set('remoteSpectrumAlways', peppy_config.current['remote.spectrum.always'] === 'true');
+            }
         }
     }
 
@@ -819,6 +822,7 @@ peppyScreensaver.prototype.getUIConfig = function() {
             C('fanartTransition').value.value = fanartTransition;
             C('fanartTransition').value.label = self.commandRouter.getI18nString(fanartTransitionLabels[fanartTransition] || fanartTransitionLabels.none);
             C('fanartTransitionMs').value = parseInt(self.config.get('fanartTransitionMs'), 10) || 600;
+            C('fanartUnlimitedImages').value = self.config.get('fanartUnlimitedImages') === true;
             //if (self.config.get('activeFolder') == '') {
             var meterFolder = peppy_config.current[meterFolderStr];
             if (meterFolder.includes ('_')) {
@@ -898,6 +902,19 @@ peppyScreensaver.prototype.getUIConfig = function() {
             C('displayOutput').value.value = self.config.get('displayOutput');
             C('displayOutput').value.label = 'Display=' + self.config.get('displayOutput');
             C('doNotDeleteThemes').value = self.config.get('doNotDeleteThemes') === true;
+
+            // format / type display mode (config.txt [current] playinfo.type.mode)
+            var formatTypeMode = peppy_config.current['playinfo.type.mode'] || 'icon';
+            if (formatTypeMode !== 'icon' && formatTypeMode !== 'text' && formatTypeMode !== 'both') {
+                formatTypeMode = 'icon';
+            }
+            var formatTypeOptions = C('formatTypeMode').options;
+            for (var i = 0; i < formatTypeOptions.length; i++) {
+                if (formatTypeOptions[i].value === formatTypeMode) {
+                    C('formatTypeMode').value = formatTypeOptions[i];
+                    break;
+                }
+            }
 
             // use system fonts (from config.txt, default false = use PeppyFont)
             var useSystemFonts = false;
@@ -1193,6 +1210,15 @@ peppyScreensaver.prototype.getUIConfig = function() {
                 remoteSpectrumPort = peppy_config && peppy_config.current ? (parseInt(peppy_config.current['remote.spectrum.port'], 10) || 5581) : 5581;
             }
             C('remoteSpectrumPort').value = remoteSpectrumPort;
+
+            // always stream spectrum bins when host meter has no spectrum
+            var remoteSpectrumAlways = self.config.get('remoteSpectrumAlways');
+            if (remoteSpectrumAlways === undefined) {
+                remoteSpectrumAlways = peppy_config && peppy_config.current
+                    ? peppy_config.current['remote.spectrum.always'] === 'true'
+                    : false;
+            }
+            C('remoteSpectrumAlways').value = !!remoteSpectrumAlways;
             
             // config sync interval
             var configSyncInterval = self.config.get('configSyncInterval');
@@ -1453,6 +1479,16 @@ peppyScreensaver.prototype.saveDisplayConf = function (confData) {
         self.config.set('displayOutput', confData.displayOutput.value);
         var DispOut = parseInt(confData.displayOutput.value,10);
         self.switch_DisplayPort(DispOut);
+        noChanges = false;
+    }
+
+    // write format / type display mode (like scrolling.mode: config.txt [current] only)
+    var formatTypeMode = (confData.formatTypeMode && confData.formatTypeMode.value) || 'icon';
+    if (formatTypeMode !== 'icon' && formatTypeMode !== 'text' && formatTypeMode !== 'both') {
+        formatTypeMode = 'icon';
+    }
+    if (peppy_config.current['playinfo.type.mode'] != formatTypeMode) {
+        peppy_config.current['playinfo.type.mode'] = formatTypeMode;
         noChanges = false;
     }
 
@@ -2145,6 +2181,12 @@ peppyScreensaver.prototype.saveRemoteConf = function (confData) {
       self.config.set('remoteSpectrumPort', remoteSpectrumPort);
       noChanges = false;
   }
+
+  var remoteSpectrumAlways = !!confData.remoteSpectrumAlways;
+  if (self.config.get('remoteSpectrumAlways') !== remoteSpectrumAlways) {
+      self.config.set('remoteSpectrumAlways', remoteSpectrumAlways);
+      noChanges = false;
+  }
   
   var configSyncInterval = self.minmax('config_sync_interval', confData.configSyncInterval, [1, 60, 1]);
   if (self.config.get('configSyncInterval') !== configSyncInterval) {
@@ -2169,6 +2211,10 @@ peppyScreensaver.prototype.saveRemoteConf = function (confData) {
     }
     if (peppy_config.current['remote.spectrum.port'] != remoteSpectrumPort) {
         peppy_config.current['remote.spectrum.port'] = remoteSpectrumPort;
+    }
+    var remoteSpectrumAlwaysStr = remoteSpectrumAlways ? 'true' : 'false';
+    if (peppy_config.current['remote.spectrum.always'] != remoteSpectrumAlwaysStr) {
+        peppy_config.current['remote.spectrum.always'] = remoteSpectrumAlwaysStr;
     }
     if (peppy_config.current['remote.config.sync.interval'] != configSyncInterval) {
         peppy_config.current['remote.config.sync.interval'] = configSyncInterval;
@@ -2851,7 +2897,8 @@ peppyScreensaver.prototype.getArtistFanart = async function (data) {
       return { success: false, error: 'no fanart' };
     }
 
-    if (picked.length > FANART_MAX_IMAGES) {
+    // Default: cap at FANART_MAX_IMAGES. Unlimited mode skips the cap (crash risk).
+    if (self.config.get('fanartUnlimitedImages') !== true && picked.length > FANART_MAX_IMAGES) {
       picked = picked.slice(0, FANART_MAX_IMAGES);
     }
 
@@ -2933,19 +2980,27 @@ peppyScreensaver.prototype.clearFanartCache = function () {
   return defer.promise;
 };
 
+/** Clear cached fanart images (keep mbid.json). Returns true on success. */
+peppyScreensaver.prototype._clearFanartImageCache = function () {
+  var self = this;
+  if (!fs.existsSync(FanartCacheDir)) {
+    return true;
+  }
+  fs.readdirSync(FanartCacheDir).forEach(function (f) {
+    if (f === 'mbid.json') { return; }
+    fs.removeSync(path.join(FanartCacheDir, f));
+  });
+  galleryLog(self.logger, 'basic', 'fanart cache cleared (mbid.json preserved)');
+  return true;
+};
+
 peppyScreensaver.prototype.clearFanartCacheConfirmed = function () {
   var self = this;
   var defer = libQ.defer();
   var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
   try {
-    if (fs.existsSync(FanartCacheDir)) {
-      fs.readdirSync(FanartCacheDir).forEach(function (f) {
-        if (f === 'mbid.json') { return; }
-        fs.removeSync(path.join(FanartCacheDir, f));
-      });
-    }
+    self._clearFanartImageCache();
     if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
-    galleryLog(self.logger, 'basic', 'fanart cache cleared (mbid.json preserved)');
     self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.CLEAR_FANART_CACHE_DONE'));
   } catch (e) {
     self.logger.error(id + 'clearFanartCacheConfirmed: ' + e.message);
@@ -3540,6 +3595,10 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
       ? data.fanartOrder.value
       : (data && data.fanartOrder);
     if (['sequential', 'random'].indexOf(order) === -1) { order = 'sequential'; }
+    var unlimitedWanted = (data && (data.fanartUnlimitedImages === true || data.fanartUnlimitedImages === 'true'));
+    var wasUnlimited = self.config.get('fanartUnlimitedImages') === true;
+    var pendingUnlimitedEnable = (unlimitedWanted && !wasUnlimited);
+    var unlimitedDisabled = (!unlimitedWanted && wasUnlimited);
 
     self.config.set('fanartEnabled', enabled);
     self.config.set('fanartKeyMode', keyMode);
@@ -3548,6 +3607,15 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     self.config.set('fanartOrder', order);
     self.config.set('fanartTransition', transition);
     self.config.set('fanartTransitionMs', transitionMs);
+    // Off→On for unlimited is gated by openModal confirm; do not set true here.
+    if (unlimitedDisabled) {
+      self.config.set('fanartUnlimitedImages', false);
+      try { self._clearFanartImageCache(); } catch (eClearOff) {
+        self.logger.error(id + 'saveThemesArtwork: clear cache on unlimited Off: ' + eClearOff.message);
+      }
+    } else if (!pendingUnlimitedEnable && unlimitedWanted) {
+      self.config.set('fanartUnlimitedImages', true);
+    }
 
     // --- Theme + font settings that live in config.txt / config.json (moved here
     //     from the old global section): keep-themes flag, active theme folder
@@ -3631,6 +3699,37 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     if (folderChanged) { try { self.updateUIConfig(); } catch (eUi) {} }
 
     self.commandRouter.pushToastMessage('success', pluginName, self.commandRouter.getI18nString('PEPPY_SCREENSAVER.THEMES_ARTWORK_SAVED'));
+
+    // Gate unlimited fanart: Off→On requires explicit crash-risk confirm.
+    if (pendingUnlimitedEnable) {
+      self.commandRouter.broadcastMessage('openModal', {
+        title: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_CONFIRM_TITLE'),
+        message: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_CONFIRM_MSG'),
+        size: 'lg',
+        buttons: [
+          {
+            name: self.commandRouter.getI18nString('COMMON.CANCEL'),
+            class: 'btn btn-default',
+            emit: 'callMethod',
+            payload: {
+              endpoint: 'user_interface/peppy_screensaver',
+              method: 'cancelFanartUnlimitedImages',
+              data: {}
+            }
+          },
+          {
+            name: self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_CONFIRM_BTN'),
+            class: 'btn btn-warning',
+            emit: 'callMethod',
+            payload: {
+              endpoint: 'user_interface/peppy_screensaver',
+              method: 'enableFanartUnlimitedImagesConfirmed',
+              data: {}
+            }
+          }
+        ]
+      });
+    }
   } catch (e) {
     self.logger.error(id + 'saveThemesArtwork: ' + e.message);
   }
@@ -3643,6 +3742,42 @@ peppyScreensaver.prototype.saveThemesArtwork = function (data) {
     self.removeThemeFolder(data);
   }
 
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.enableFanartUnlimitedImagesConfirmed = function () {
+  var self = this;
+  var defer = libQ.defer();
+  var pluginName = self.commandRouter.getI18nString('PEPPY_SCREENSAVER.PLUGIN_NAME');
+  try {
+    self.config.set('fanartUnlimitedImages', true);
+    self._clearFanartImageCache();
+    try { self.updateConfigVersion(); } catch (eVer) {}
+    if (fs.existsSync(runFlag)) { fs.removeSync(runFlag); }
+    try { self.updateUIConfig(); } catch (eUi) {}
+    self.commandRouter.pushToastMessage('success', pluginName,
+      self.commandRouter.getI18nString('PEPPY_SCREENSAVER.FANART_UNLIMITED_ENABLED'));
+    galleryLog(self.logger, 'basic', 'fanartUnlimitedImages enabled (no image cap; crash risk accepted)');
+  } catch (e) {
+    self.logger.error(id + 'enableFanartUnlimitedImagesConfirmed: ' + e.message);
+    self.commandRouter.pushToastMessage('error', pluginName, e.message);
+  }
+  defer.resolve();
+  return defer.promise;
+};
+
+peppyScreensaver.prototype.cancelFanartUnlimitedImages = function () {
+  var self = this;
+  var defer = libQ.defer();
+  try {
+    // Ensure switch stays Off in UI (config was never set On).
+    self.config.set('fanartUnlimitedImages', false);
+    self.updateUIConfig();
+  } catch (e) {
+    self.logger.error(id + 'cancelFanartUnlimitedImages: ' + e.message);
+  }
+  try { self.commandRouter.broadcastMessage('closeModals', ''); } catch (eClose) {}
   defer.resolve();
   return defer.promise;
 };

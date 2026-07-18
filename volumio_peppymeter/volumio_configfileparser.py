@@ -107,6 +107,7 @@ FOLDERLAYER_POS = "folderlayer.pos"
 FOLDERLAYER_DIM = "folderlayer.dimension"
 FOLDERLAYER_SCALE = "folderlayer.scale"
 FOLDERLAYER_ZORDER = "folderlayer.zorder"
+FOLDERLAYER_BORDER = "folderlayer.border"  # optional px border (like albumart.border)
 FOLDERLAYERS = "folderlayers"   # parsed list of folder-image layer dicts (multi-layer)
 FOLDERLAYER_MAX = 5             # max indexed folderlayer.N.* layers (plus the legacy one)
 FOLDERLAYER_DEFAULT_FILES = ["back.png", "Back.png", "back.jpg", "Back.jpg", "logo.png", "Logo.png"]
@@ -175,6 +176,11 @@ VOLUME_FILL_COLOR = "volume.fill.color"   # optional fill/tail behind the image 
 VOLUME_FILL_WIDTH = "volume.fill.width"   # fill thickness (cross-axis); defaults to the knob size
 VOLUME_FILL_OFFSET = "volume.fill.offset" # nudge the fill from the knob-centred position (dx,dy)
 VOLUME_FILL_RADIUS = "volume.fill.radius" # rounded fill ends (border radius px); 0 = square
+# Progress fill (parity with volume.fill.* for image-based progress sliders)
+PROGRESS_FILL_COLOR = "progress.fill.color"
+PROGRESS_FILL_WIDTH = "progress.fill.width"
+PROGRESS_FILL_OFFSET = "progress.fill.offset"
+PROGRESS_FILL_RADIUS = "progress.fill.radius"
 
 # Mute indicator
 MUTE_POS = "mute.pos"
@@ -258,6 +264,7 @@ PROGRESS_HEAD_IMAGE = "progress.head.image"
 PROGRESS_HEAD_OFFSET = "progress.head.offset"
 
 PLAY_TXT_CENTER = "playinfo.text.center"
+PLAY_ALIGN = "playinfo.align"  # left|center|right; playinfo.center remains a legacy alias for center
 PLAY_TITLE_POS = "playinfo.title.pos"
 PLAY_TITLE_COLOR = "playinfo.title.color"
 PLAY_TITLE_MAX = "playinfo.title.maxwidth"
@@ -304,6 +311,9 @@ PLAY_TICKER_END_SPACES = "playinfo.ticker.end_spaces"
 PLAY_TYPE_POS = "playinfo.type.pos"
 PLAY_TYPE_COLOR = "playinfo.type.color"
 PLAY_TYPE_DIM = "playinfo.type.dimension"
+PLAY_TYPE_MODE = "playinfo.type.mode"
+PLAY_TYPE_FONTSIZE = "playinfo.type.fontsize"
+PLAY_TYPE_ALIGN = "playinfo.type.align"
 PLAY_SAMPLE_POS = "playinfo.samplerate.pos"
 PLAY_SAMPLE_STYLE = "PLAY_SAMPLE_STYLE"
 PLAY_SAMPLE_MAX = "playinfo.samplerate.maxwidth"
@@ -345,6 +355,9 @@ REMOTE_SERVER_MODE = "remote.server.mode"           # 'server', 'server_local'
 REMOTE_SERVER_PORT = "remote.server.port"           # UDP port for level data (default 5580)
 REMOTE_DISCOVERY_PORT = "remote.discovery.port"     # UDP port for discovery (default 5579)
 REMOTE_SPECTRUM_PORT = "remote.spectrum.port"       # UDP port for spectrum data (default 5581)
+# When true (server_local): network may own /tmp/myfifosa if host has no SpectrumOutput.
+# When false (default): spectrum UDP only when host injects bins (synced meters).
+REMOTE_SPECTRUM_ALWAYS = "remote.spectrum.always"
 REMOTE_CONFIG_SYNC_INTERVAL = "remote.config.sync.interval"  # Config check interval in seconds (default 1)
 
 class Volumio_ConfigFileParser(object):
@@ -507,6 +520,10 @@ class Volumio_ConfigFileParser(object):
         except:
             self.meter_config_volumio[REMOTE_SPECTRUM_PORT] = 5581
         try:
+            self.meter_config_volumio[REMOTE_SPECTRUM_ALWAYS] = c.getboolean(CURRENT, REMOTE_SPECTRUM_ALWAYS)
+        except:
+            self.meter_config_volumio[REMOTE_SPECTRUM_ALWAYS] = False
+        try:
             self.meter_config_volumio[REMOTE_CONFIG_SYNC_INTERVAL] = c.getint(CURRENT, REMOTE_CONFIG_SYNC_INTERVAL)
         except:
             self.meter_config_volumio[REMOTE_CONFIG_SYNC_INTERVAL] = 1
@@ -532,6 +549,12 @@ class Volumio_ConfigFileParser(object):
             self.meter_config_volumio["scrolling.speed.album"] = c.getint(CURRENT, "scrolling.speed.album")
         except:
             self.meter_config_volumio["scrolling.speed.album"] = 40
+
+        # Format/type display mode (global UI default; skin meters.txt can override)
+        try:
+            self.meter_config_volumio[PLAY_TYPE_MODE] = c.get(CURRENT, PLAY_TYPE_MODE)
+        except:
+            self.meter_config_volumio[PLAY_TYPE_MODE] = "icon"
 
         try:
             self.meter_config_volumio[FONT_PATH] = c.get(CURRENT, FONT_PATH)
@@ -678,9 +701,13 @@ class Volumio_ConfigFileParser(object):
                 _fl_zorder = config_file.get(section, _pfx + ".zorder").strip().lower()
             except:
                 _fl_zorder = "overlay"  # 'overlay' (above meters) or 'background' (behind meters)
+            try:
+                _fl_border = config_file.getint(section, _pfx + ".border")
+            except:
+                _fl_border = 0  # no border by default (existing skins unchanged)
             _folderlayers.append({
                 "files": _fl_files, "pos": _fl_pos, "dim": _fl_dim,
-                "scale": _fl_scale, "zorder": _fl_zorder,
+                "scale": _fl_scale, "zorder": _fl_zorder, "border": _fl_border,
             })
         d[FOLDERLAYERS] = _folderlayers
 
@@ -1060,10 +1087,10 @@ class Volumio_ConfigFileParser(object):
             d[REPEAT_LED_SHAPE] = "circle"
         try:
             spl = config_file.get(section, REPEAT_LED_COLOR).split(',')
-            # 9 values: off_r,off_g,off_b,on_r,on_g,on_b,single_r,single_g,single_b
-            d[REPEAT_LED_COLOR] = [(int(spl[0]), int(spl[1]), int(spl[2])),
-                                   (int(spl[3]), int(spl[4]), int(spl[5])),
-                                   (int(spl[6]), int(spl[7]), int(spl[8]))]
+            # RGB triples: 9 values = off/all/single, 12 values adds an infinity state.
+            vals = [int(x) for x in spl]
+            colors = [tuple(vals[i:i + 3]) for i in range(0, len(vals) - len(vals) % 3, 3)]
+            d[REPEAT_LED_COLOR] = colors if len(colors) >= 3 else [(64, 64, 64), (0, 255, 0), (255, 200, 0)]
         except:
             d[REPEAT_LED_COLOR] = [(64, 64, 64), (0, 255, 0), (255, 200, 0)]
         try:
@@ -1213,6 +1240,25 @@ class Volumio_ConfigFileParser(object):
             d[PROGRESS_SLIDER_TIP_OFFSET] = (int(spl[0]), int(spl[1]))
         except:
             d[PROGRESS_SLIDER_TIP_OFFSET] = (0, 0)
+        # Optional fill/tail behind the image progress tip (parity with volume.fill.*)
+        try:
+            spl = config_file.get(section, PROGRESS_FILL_COLOR).split(',')
+            d[PROGRESS_FILL_COLOR] = (int(spl[0]), int(spl[1]), int(spl[2]))
+        except:
+            d[PROGRESS_FILL_COLOR] = None  # off by default (existing skins unchanged)
+        try:
+            d[PROGRESS_FILL_WIDTH] = config_file.getint(section, PROGRESS_FILL_WIDTH)
+        except:
+            d[PROGRESS_FILL_WIDTH] = None  # default: tip cross-axis size
+        try:
+            spl = config_file.get(section, PROGRESS_FILL_OFFSET).split(',')
+            d[PROGRESS_FILL_OFFSET] = (int(spl[0]), int(spl[1]))
+        except:
+            d[PROGRESS_FILL_OFFSET] = (0, 0)
+        try:
+            d[PROGRESS_FILL_RADIUS] = max(0, config_file.getint(section, PROGRESS_FILL_RADIUS))
+        except:
+            d[PROGRESS_FILL_RADIUS] = 0  # square ends by default
         try:
             d[PROGRESS_KNOB_IMAGE] = config_file.get(section, PROGRESS_KNOB_IMAGE)
         except:
@@ -1340,6 +1386,16 @@ class Volumio_ConfigFileParser(object):
             d[PLAY_CENTER] = config_file.getboolean(section, PLAY_CENTER)
         except:
             d[PLAY_CENTER] = False
+        # playinfo.align = left|center|right. When unset, playinfo.center /
+        # playinfo.text.center remain the legacy way to request center.
+        try:
+            _align = config_file.get(section, PLAY_ALIGN).strip().lower()
+            if _align in ("left", "center", "right"):
+                d[PLAY_ALIGN] = _align
+            else:
+                d[PLAY_ALIGN] = None
+        except:
+            d[PLAY_ALIGN] = None
         try:
             d[PLAY_MAX] = config_file.getint(section, PLAY_MAX)
         except:
@@ -1480,6 +1536,25 @@ class Volumio_ConfigFileParser(object):
             d[PLAY_TYPE_DIM] =  (int(spl[0]), int(spl[1]))
         except:
             d[PLAY_TYPE_DIM] = None
+        try:
+            mode = config_file.get(section, PLAY_TYPE_MODE).strip().lower()
+            d[PLAY_TYPE_MODE] = mode if mode in ("icon", "text", "both") else None
+        except:
+            d[PLAY_TYPE_MODE] = None
+        try:
+            d[PLAY_TYPE_FONTSIZE] = config_file.getint(section, PLAY_TYPE_FONTSIZE)
+        except:
+            d[PLAY_TYPE_FONTSIZE] = None
+        # playinfo.type.align = left|center|right. Skin-only; does not inherit
+        # playinfo.align / playinfo.center. Default (None) means center in handlers.
+        try:
+            _type_align = config_file.get(section, PLAY_TYPE_ALIGN).strip().lower()
+            if _type_align in ("left", "center", "right"):
+                d[PLAY_TYPE_ALIGN] = _type_align
+            else:
+                d[PLAY_TYPE_ALIGN] = None
+        except:
+            d[PLAY_TYPE_ALIGN] = None
         try:
             spl = config_file.get(section, PLAY_SAMPLE_POS).split(',')		
             d[PLAY_SAMPLE_POS] = (int(spl[0]), int(spl[1]))

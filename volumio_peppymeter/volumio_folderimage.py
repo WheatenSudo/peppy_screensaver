@@ -66,12 +66,15 @@ def _decode_surface_bounded(img_bytes, box, want_alpha=True):
 
 class FolderImageRenderer:
     def __init__(self, pos, dim, scale_mode="fit", filenames=None,
-                 volumio_url="http://localhost:3000"):
+                 volumio_url="http://localhost:3000",
+                 border_width=0, border_color=(255, 255, 255)):
         self.pos = pos
         self.dim = dim
         self.scale_mode = (scale_mode or "fit").lower()
         self.filenames = filenames or list(DEFAULT_FOLDER_FILES)
         self.volumio_url = volumio_url or "http://localhost:3000"
+        self.border_width = max(0, int(border_width or 0))
+        self.border_color = border_color or (255, 255, 255)
 
         # Sentinel so the first real track key always triggers a load attempt
         self._current_key = "__peppy_init__"
@@ -183,6 +186,16 @@ class FolderImageRenderer:
         if not self._needs_redraw and not self._need_first_blit:
             return None
         screen.blit(self._scaled_surf, self._blit_pos)
+        # Optional border frames the configured box (same model as albumart.border)
+        if self.border_width > 0:
+            try:
+                pg.draw.rect(
+                    screen, self.border_color,
+                    pg.Rect(self.pos[0], self.pos[1], self.dim[0], self.dim[1]),
+                    self.border_width,
+                )
+            except Exception:
+                pass
         self._needs_redraw = False
         self._need_first_blit = False
         return self.get_backing_rect()
