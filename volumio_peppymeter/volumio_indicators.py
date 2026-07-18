@@ -558,6 +558,91 @@ class IconIndicator:
 
 
 # =============================================================================
+# Solid thick-arc helper (replaces pygame.draw.arc for width > 1)
+# =============================================================================
+# pygame.draw.arc with width > 1 is built from concentric 1px arcs and leaves
+# visible holes/stipple ("haze") even on pygame 2.5.2. Fill an annular sector
+# polygon instead so progress/volume arcs are a proper solid color.
+# Angle convention matches pygame.draw.arc: degrees, 0 = east, CCW positive;
+# the stroke is drawn from start_deg toward stop_deg (CCW), inset from rect.
+
+def _draw_solid_arc(surface, color, rect, start_deg, stop_deg, width):
+    """Draw a solid thick arc (annular sector) into surface.
+
+    :param surface: destination pygame surface
+    :param color: RGB or RGBA color
+    :param rect: bounding rect of the outer ellipse (same as pygame.draw.arc)
+    :param start_deg: start angle in degrees (pygame convention)
+    :param stop_deg: stop angle in degrees; arc fills CCW from start to stop
+    :param width: stroke thickness in pixels, inset toward center
+    """
+    if not color or width <= 0 or rect.width <= 0 or rect.height <= 0:
+        return
+
+    a0 = math.radians(float(start_deg))
+    a1 = math.radians(float(stop_deg))
+    span = a1 - a0
+    # Normalize to (0, 2π] so full-circle skins (e.g. 90 → -270) stay solid.
+    while span <= 0:
+        span += 2.0 * math.pi
+    while span > 2.0 * math.pi:
+        span -= 2.0 * math.pi
+
+    stroke = max(1, int(width))
+
+    # Full ring: pygame cannot reliably fill a single self-closing ring polygon.
+    # Split into two half-rings (each is a simple annular sector).
+    if span >= 2.0 * math.pi - 1e-4:
+        mid = float(start_deg) + 180.0
+        _draw_solid_arc_sector(surface, color, rect, float(start_deg), mid, stroke)
+        _draw_solid_arc_sector(surface, color, rect, mid, float(start_deg) + 360.0, stroke)
+        return
+
+    _draw_solid_arc_sector(surface, color, rect, float(start_deg),
+                           float(start_deg) + math.degrees(span), stroke)
+
+
+def _draw_solid_arc_sector(surface, color, rect, start_deg, stop_deg, stroke):
+    """Draw one simple annular-sector polygon (stop is CCW from start)."""
+    a0 = math.radians(float(start_deg))
+    a1 = math.radians(float(stop_deg))
+    span = a1 - a0
+    if span <= 0:
+        return
+
+    cx = rect.x + rect.width / 2.0
+    cy = rect.y + rect.height / 2.0
+    rx = rect.width / 2.0
+    ry = rect.height / 2.0
+    rx_in = max(0.0, rx - stroke)
+    ry_in = max(0.0, ry - stroke)
+
+    # Density scales with sweep; keep a floor so short arcs stay smooth.
+    steps = max(12, int(span / (2.0 * math.pi) * 128))
+
+    def _pt(radius_x, radius_y, angle):
+        # pygame angles: +CCW from +x; screen y grows downward → negate sin.
+        return (cx + radius_x * math.cos(angle), cy - radius_y * math.sin(angle))
+
+    # Degenerate inner radius: filled pie slice (outer rim only).
+    if rx_in < 0.5 or ry_in < 0.5:
+        pts = [(cx, cy)]
+        for i in range(steps + 1):
+            pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
+        if len(pts) >= 3:
+            pg.draw.polygon(surface, color, pts)
+        return
+
+    pts = []
+    for i in range(steps + 1):
+        pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
+    for i in range(steps + 1):
+        pts.append(_pt(rx_in, ry_in, a0 + span * (1.0 - i / float(steps))))
+    if len(pts) >= 3:
+        pg.draw.polygon(surface, color, pts)
+
+
+# =============================================================================
 # VolumeIndicator - Renders volume display in various styles
 # =============================================================================
 class SliderIndicator:
@@ -1114,20 +1199,18 @@ class SliderIndicator:
         # Draw background arc (full sweep)
         rect = pg.Rect(x, y, w, h)
         if self.bg_color:
-            pg.draw.arc(screen, self.bg_color, rect, 
-                       math.radians(self.arc_angle_end), 
-                       math.radians(self.arc_angle_start), 
-                       self.arc_width)
+            _draw_solid_arc(
+                screen, self.bg_color, rect,
+                self.arc_angle_end, self.arc_angle_start, self.arc_width)
         
         # Draw foreground arc based on volume
         # volume 0% = arc_angle_start, volume 100% = arc_angle_end
         if volume > 0:
             # Calculate end angle for current volume
             current_angle = self.arc_angle_start - (volume / 100.0) * self.arc_angle_sweep
-            pg.draw.arc(screen, self.color, rect,
-                       math.radians(current_angle), 
-                       math.radians(self.arc_angle_start), 
-                       self.arc_width)
+            _draw_solid_arc(
+                screen, self.color, rect,
+                current_angle, self.arc_angle_start, self.arc_width)
         
         return rect
     
