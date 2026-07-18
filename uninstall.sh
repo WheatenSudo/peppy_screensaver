@@ -96,6 +96,19 @@ if [ -d "$DATA_DIR" ]; then
   fi
 fi
 
+# Remove leftover git-clone install tree from older workflows
+# (git clone into /home/volumio/peppy_screensaver). Only that exact path,
+# and only if it looks like this plugin repo - never wipe INTERNAL themes here.
+LEGACY_CLONE="/home/volumio/peppy_screensaver"
+if [ -d "$LEGACY_CLONE" ]; then
+  if [ -f "$LEGACY_CLONE/install.sh" ] || [ -f "$LEGACY_CLONE/package.json" ] || [ -d "$LEGACY_CLONE/.git" ]; then
+    echo "Removing leftover git clone at $LEGACY_CLONE..."
+    rm -rf "$LEGACY_CLONE"
+  else
+    echo "Leaving $LEGACY_CLONE (does not look like peppy_screensaver plugin tree)"
+  fi
+fi
+
 # Remove system packages if not needed by other software
 echo "Removing system dependencies if unused..."
 for pkg in libsdl2-ttf-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0 libfftw3-double3; do
