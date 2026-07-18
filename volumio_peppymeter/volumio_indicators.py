@@ -560,11 +560,80 @@ class IconIndicator:
 # =============================================================================
 # Solid thick-arc helper (replaces pygame.draw.arc for width > 1)
 # =============================================================================
-# pygame.draw.arc with width > 1 is built from concentric 1px arcs and leaves
-# visible holes/stipple ("haze") even on pygame 2.5.2. Fill an annular sector
-# polygon instead so progress/volume arcs are a proper solid color.
-# Angle convention matches pygame.draw.arc: degrees, 0 = east, CCW positive;
-# the stroke is drawn from start_deg toward stop_deg (CCW), inset from rect.
+# Why this element is special: most "smooth" curves in skins are baked into PNG
+# artwork or PIL alpha masks (albumart.circle, glow). Progress/volume arcs are
+# the rare procedural thick curve redrawn every update.
+#
+# pygame.draw.arc (width>1) = holes/stipple. Hard polygon = solid but frayed.
+# Match the quality path used elsewhere: rasterize at 4x, downsample with
+# PIL LANCZOS (GlowEffect / circular art masks already depend on PIL here).
+# Angle convention matches pygame.draw.arc: degrees, 0 = east, CCW positive.
+
+_ARC_AA_SCALE = 4
+
+
+def _arc_annular_sector_points(rect, start_deg, stop_deg, stroke):
+    """Return vertex list for one annular sector (CCW from start to stop).
+
+    :return: list of (x, y) floats, or empty list if span is empty
+    """
+    a0 = math.radians(float(start_deg))
+    a1 = math.radians(float(stop_deg))
+    span = a1 - a0
+    if span <= 0:
+        return []
+
+    cx = rect[0] + rect[2] / 2.0
+    cy = rect[1] + rect[3] / 2.0
+    rx = rect[2] / 2.0
+    ry = rect[3] / 2.0
+    rx_in = max(0.0, rx - stroke)
+    ry_in = max(0.0, ry - stroke)
+    steps = max(24, int(span / (2.0 * math.pi) * 192))
+
+    def _pt(radius_x, radius_y, angle):
+        return (cx + radius_x * math.cos(angle), cy - radius_y * math.sin(angle))
+
+    if rx_in < 0.5 or ry_in < 0.5:
+        pts = [(cx, cy)]
+        for i in range(steps + 1):
+            pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
+        return pts
+
+    pts = []
+    for i in range(steps + 1):
+        pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
+    for i in range(steps + 1):
+        pts.append(_pt(rx_in, ry_in, a0 + span * (1.0 - i / float(steps))))
+    return pts
+
+
+def _arc_sector_point_lists(start_deg, stop_deg, width, scale, size):
+    """Build scaled annular-sector polygon lists for the normalized sweep."""
+    a0 = math.radians(float(start_deg))
+    a1 = math.radians(float(stop_deg))
+    span = a1 - a0
+    while span <= 0:
+        span += 2.0 * math.pi
+    while span > 2.0 * math.pi:
+        span -= 2.0 * math.pi
+
+    stroke = max(1, int(width) * scale)
+    big_rect = (0, 0, size[0] * scale, size[1] * scale)
+    lists = []
+
+    # Full ring: two half-rings (single self-closing ring polygon fills badly).
+    if span >= 2.0 * math.pi - 1e-4:
+        mid = float(start_deg) + 180.0
+        lists.append(_arc_annular_sector_points(big_rect, float(start_deg), mid, stroke))
+        lists.append(_arc_annular_sector_points(
+            big_rect, mid, float(start_deg) + 360.0, stroke))
+    else:
+        lists.append(_arc_annular_sector_points(
+            big_rect, float(start_deg),
+            float(start_deg) + math.degrees(span), stroke))
+    return [pts for pts in lists if len(pts) >= 3]
+
 
 def _draw_solid_arc(surface, color, rect, start_deg, stop_deg, width):
     """Draw a solid thick arc (annular sector) into surface.
@@ -579,67 +648,40 @@ def _draw_solid_arc(surface, color, rect, start_deg, stop_deg, width):
     if not color or width <= 0 or rect.width <= 0 or rect.height <= 0:
         return
 
-    a0 = math.radians(float(start_deg))
-    a1 = math.radians(float(stop_deg))
-    span = a1 - a0
-    # Normalize to (0, 2π] so full-circle skins (e.g. 90 → -270) stay solid.
-    while span <= 0:
-        span += 2.0 * math.pi
-    while span > 2.0 * math.pi:
-        span -= 2.0 * math.pi
+    if len(color) >= 4:
+        fill = (int(color[0]), int(color[1]), int(color[2]), int(color[3]))
+    else:
+        fill = (int(color[0]), int(color[1]), int(color[2]), 255)
 
-    stroke = max(1, int(width))
-
-    # Full ring: pygame cannot reliably fill a single self-closing ring polygon.
-    # Split into two half-rings (each is a simple annular sector).
-    if span >= 2.0 * math.pi - 1e-4:
-        mid = float(start_deg) + 180.0
-        _draw_solid_arc_sector(surface, color, rect, float(start_deg), mid, stroke)
-        _draw_solid_arc_sector(surface, color, rect, mid, float(start_deg) + 360.0, stroke)
+    scale = _ARC_AA_SCALE
+    size = (rect.width, rect.height)
+    point_lists = _arc_sector_point_lists(start_deg, stop_deg, width, scale, size)
+    if not point_lists:
         return
 
-    _draw_solid_arc_sector(surface, color, rect, float(start_deg),
-                           float(start_deg) + math.degrees(span), stroke)
+    # Preferred path: PIL 4x + LANCZOS (same downsample quality as art/glow).
+    if PIL_AVAILABLE:
+        try:
+            pil_img = Image.new('RGBA', (size[0] * scale, size[1] * scale), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(pil_img)
+            for pts in point_lists:
+                draw.polygon(pts, fill=fill)
+            try:
+                resample = Image.Resampling.LANCZOS
+            except AttributeError:
+                resample = Image.LANCZOS
+            pil_img = pil_img.resize(size, resample)
+            arc_surf = pg.image.fromstring(pil_img.tobytes(), pil_img.size, 'RGBA')
+            surface.blit(arc_surf.convert_alpha(), rect.topleft)
+            return
+        except Exception:
+            pass  # fall through to pygame path
 
-
-def _draw_solid_arc_sector(surface, color, rect, start_deg, stop_deg, stroke):
-    """Draw one simple annular-sector polygon (stop is CCW from start)."""
-    a0 = math.radians(float(start_deg))
-    a1 = math.radians(float(stop_deg))
-    span = a1 - a0
-    if span <= 0:
-        return
-
-    cx = rect.x + rect.width / 2.0
-    cy = rect.y + rect.height / 2.0
-    rx = rect.width / 2.0
-    ry = rect.height / 2.0
-    rx_in = max(0.0, rx - stroke)
-    ry_in = max(0.0, ry - stroke)
-
-    # Density scales with sweep; keep a floor so short arcs stay smooth.
-    steps = max(12, int(span / (2.0 * math.pi) * 128))
-
-    def _pt(radius_x, radius_y, angle):
-        # pygame angles: +CCW from +x; screen y grows downward → negate sin.
-        return (cx + radius_x * math.cos(angle), cy - radius_y * math.sin(angle))
-
-    # Degenerate inner radius: filled pie slice (outer rim only).
-    if rx_in < 0.5 or ry_in < 0.5:
-        pts = [(cx, cy)]
-        for i in range(steps + 1):
-            pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
-        if len(pts) >= 3:
-            pg.draw.polygon(surface, color, pts)
-        return
-
-    pts = []
-    for i in range(steps + 1):
-        pts.append(_pt(rx, ry, a0 + span * (i / float(steps))))
-    for i in range(steps + 1):
-        pts.append(_pt(rx_in, ry_in, a0 + span * (1.0 - i / float(steps))))
-    if len(pts) >= 3:
-        pg.draw.polygon(surface, color, pts)
+    # Fallback: pygame 4x + smoothscale (no PIL).
+    big = pg.Surface((size[0] * scale, size[1] * scale), pg.SRCALPHA)
+    for pts in point_lists:
+        pg.draw.polygon(big, fill, pts)
+    surface.blit(pg.transform.smoothscale(big, size), rect.topleft)
 
 
 # =============================================================================
